@@ -37,7 +37,10 @@ class EmrAdminTest extends TestCase
 
         $this->getJson('/api/v1/admin/dashboard')->assertOk();
         $this->getJson('/api/v1/admin/users')->assertOk();
-        $this->getJson('/api/v1/admin/roles')->assertOk();
+        $this->getJson('/api/v1/admin/roles')
+            ->assertOk()
+            ->assertJsonStructure(['data' => ['assignable', 'matrix']])
+            ->assertJsonPath('data.matrix.'.Roles::DOCTOR.'.0', Permissions::PATIENTS_VIEW);
         $this->getJson('/api/v1/admin/oversight')->assertOk();
         $this->getJson('/api/v1/admin/settings')->assertOk();
         $this->getJson('/api/v1/admin/audit-logs')->assertOk();

@@ -63,6 +63,12 @@ class EmrBillingTest extends TestCase
             'status' => 'confirmed',
         ])->assertOk();
 
+        if (count($items) > 1) {
+            $this->postJson('/api/v1/billing/codes/'.$items[1]['id'].'/confirm', [
+                'status' => 'dismissed',
+            ])->assertOk()->assertJsonPath('data.status', 'dismissed');
+        }
+
         $this->postJson('/api/v1/billing/claims', [
             'patient_id' => $patient->id,
             'billed_amount' => 0,

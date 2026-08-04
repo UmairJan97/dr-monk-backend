@@ -82,6 +82,18 @@ class EmrCounselorTest extends TestCase
             'score' => 8,
         ])->assertCreated();
 
+        $this->postJson('/api/v1/counselor/patients/'.$patient->id.'/assessments', [
+            'instrument' => 'GAD-7',
+            'responses' => ['q1' => 2, 'q2' => 1, 'q3' => 0, 'q4' => 1, 'q5' => 0, 'q6' => 1, 'q7' => 0],
+            'score' => 5,
+        ])->assertCreated();
+
+        $this->postJson('/api/v1/counselor/patients/'.$patient->id.'/assessments', [
+            'instrument' => 'custom',
+            'responses' => ['note' => 'Clinician observation only'],
+            'score' => null,
+        ])->assertCreated();
+
         $codesResp = $this->getJson('/api/v1/counselor/patients/'.$patient->id.'/billing-codes')->assertOk();
         $items = $codesResp->json('data.items');
         if (! empty($items)) {
@@ -113,6 +125,14 @@ class EmrCounselorTest extends TestCase
             'sig' => '50mg daily',
             'quantity' => 30,
             'refills' => 0,
+        ])->assertForbidden();
+
+        $this->getJson('/api/v1/billing/dashboard')->assertForbidden();
+        $this->getJson('/api/v1/admin/dashboard')->assertForbidden();
+        $this->postJson('/api/v1/billing/claims', [
+            'patient_id' => $patient->id,
+            'billed_amount' => 50,
+            'submit' => false,
         ])->assertForbidden();
     }
 
