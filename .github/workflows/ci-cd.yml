@@ -1,0 +1,119 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, pdo_sqlite, redis, fileinfo
+          coverage: none
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p storage/app/phi storage/framework/{cache,sessions,views} storage/logs
+          chmod -R 777 storage bootstrap/cache
+      - name: Run tests
+        run: php artisan test
+
+  deploy:
+    name: Deploy to VPS
+    needs: test
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config << EOF
+          Host drmonk-vps
+            HostName ${{ secrets.SSH_HOST }}
+            User ${{ secrets.SSH_USER }}
+            Port ${{ secrets.SSH_PORT }}
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Upload release package
+        run: |
+          tar -czf /tmp/backend-release.tar.gz \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='vendor' \
+            --exclude='.env' \
+            --exclude='storage/logs/*' \
+            --exclude='storage/framework/cache/data/*' \
+            --exclude='storage/framework/sessions/*' \
+            --exclude='storage/framework/views/*' \
+            --exclude='.phpunit.result.cache' \
+            .
+          scp /tmp/backend-release.tar.gz drmonk-vps:~/backend-release.tar.gz
+
+      - name: Remote deploy
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh drmonk-vps "DEPLOY_PATH='$DEPLOY_PATH' bash -s" << 'EOF'
+          set -euo pipefail
+          APP="${DEPLOY_PATH}"
+          mkdir -p "$APP"
+          tar -xzf ~/backend-release.tar.gz -C "$APP"
+          cd "$APP"
+
+          if [ ! -f .env ]; then
+            cp .env.example .env
+          fi
+
+          printf '%s\n' \
+            '<IfModule mod_rewrite.c>' \
+            '    RewriteEngine On' \
+            '    RewriteRule ^(.*)$ public/$1 [L]' \
+            '</IfModule>' > .htaccess
+
+          composer install --no-dev --optimize-autoloader --no-interaction
+
+          mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs storage/app/public storage/app/phi bootstrap/cache
+          chmod -R 775 storage bootstrap/cache || true
+
+          if ! grep -q '^APP_KEY=base64:' .env; then
+            php artisan key:generate --force
+          fi
+
+          php artisan config:clear
+          php artisan route:clear
+          php artisan view:clear
+
+          if php artisan migrate:status >/dev/null 2>&1; then
+            php artisan migrate --force
+            php artisan config:cache
+            php artisan route:cache
+          else
+            echo "DB not ready yet — skipped migrate/cache"
+          fi
+
+          rm -f ~/backend-release.tar.gz
+          echo "BACKEND_DEPLOY_OK"
+          EOF
