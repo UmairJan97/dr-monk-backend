@@ -90,8 +90,19 @@ class User extends Authenticatable
         }
 
         if ($this->hasAnyRole(Roles::clinicalProviders())) {
-            return $this->assignedPatients()->where('patients.id', $patient->id)->exists()
-                || $patient->primary_provider_id === $this->id;
+            // Assigned panel, primary PCP, or scheduled as this visit's provider.
+            if ($this->assignedPatients()->where('patients.id', $patient->id)->exists()) {
+                return true;
+            }
+            if ($patient->primary_provider_id === $this->id) {
+                return true;
+            }
+
+            return Appointment::query()
+                ->where('clinic_id', $this->clinic_id)
+                ->where('provider_id', $this->id)
+                ->where('patient_id', $patient->id)
+                ->exists();
         }
 
         return false;

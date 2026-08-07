@@ -432,7 +432,19 @@ class ClinicalController extends Controller
             ]);
         }
 
+        $user = $request->user();
         $appointment->update(['status' => 'in_progress']);
+
+        // Ensure PHI assignment so chart APIs stay open for this provider.
+        if (! $user->assignedPatients()->where('patients.id', $appointment->patient_id)->exists()) {
+            $user->assignedPatients()->attach($appointment->patient_id, [
+                'clinic_id' => $appointment->clinic_id,
+            ]);
+        }
+        $patient = $appointment->patient;
+        if ($patient && ! $patient->primary_provider_id) {
+            $patient->update(['primary_provider_id' => $user->id]);
+        }
 
         return ApiResponse::success($appointment->fresh(), 'Visit started');
     }

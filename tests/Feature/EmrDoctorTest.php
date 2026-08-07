@@ -147,6 +147,32 @@ class EmrDoctorTest extends TestCase
         $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')->assertForbidden();
     }
 
+    public function test_appointment_provider_can_open_chart_without_pivot(): void
+    {
+        [$clinic, $doctor] = $this->world();
+        $patient = Patient::create([
+            'clinic_id' => $clinic->id,
+            'mrn' => 'MRN-D2',
+            'first_name' => 'Visit',
+            'last_name' => 'Only',
+            'date_of_birth' => '1990-01-01',
+            'primary_provider_id' => null,
+        ]);
+        Appointment::create([
+            'clinic_id' => $clinic->id,
+            'patient_id' => $patient->id,
+            'provider_id' => $doctor->id,
+            'starts_at' => now()->setTime(14, 0),
+            'ends_at' => now()->setTime(14, 30),
+            'status' => 'ready_for_provider',
+        ]);
+        Sanctum::actingAs($doctor);
+
+        $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')
+            ->assertOk()
+            ->assertJsonPath('data.patient.id', $patient->id);
+    }
+
     public function test_hello_monk_doctor_intents(): void
     {
         [, $doctor] = $this->world();
