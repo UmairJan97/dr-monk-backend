@@ -50,7 +50,8 @@ class PatientController extends Controller
             });
         }
 
-        $patients = $q->latest()->paginate(25);
+        $perPage = min(50, max(5, (int) $request->integer('per_page', 10)));
+        $patients = $q->latest()->paginate($perPage);
 
         if ($user->hasAnyRole(Roles::demographicsOnly())) {
             $patients->getCollection()->transform(fn (Patient $p) => PhiGate::demographicsPayload($p));
@@ -163,15 +164,165 @@ class PatientController extends Controller
 
     public function show(Request $request, Patient $patient): JsonResponse
     {
-        if ($request->user()->hasAnyRole(Roles::demographicsOnly())) {
+        // Front Desk + Clinic Admin demographics editors share the same shape.
+        if ($request->user()->hasAnyRole([Roles::FRONT_DESK, Roles::CLINIC_ADMIN])) {
             return ApiResponse::success(PhiGate::demographicsPayload($patient));
         }
 
         $patient->load([
             'primaryProvider:id,name',
+            'insurances',
             'vitals' => fn ($q) => $q->latest()->limit(1),
         ]);
 
         return ApiResponse::success($patient);
+    }
+
+    public function update(Request $request, Patient $patient): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user->hasAnyRole([Roles::FRONT_DESK, Roles::CLINIC_ADMIN])) {
+            return ApiResponse::error('Only Front Desk / Clinic Admin may edit demographics.', 403, 'FORBIDDEN');
+        }
+
+        $requirePhone = $user->hasRole(Roles::FRONT_DESK);
+
+        $data = $request->validate([
+            'first_name' => ['sometimes', 'required', 'string', 'max:100'],
+            'last_name' => ['sometimes', 'required', 'string', 'max:100'],
+            'date_of_birth' => array_merge(['sometimes'], UsValidation::dateOfBirth(true)),
+            'gender' => ['nullable', 'string', 'max:40'],
+            'phone' => array_merge(['sometimes'], UsValidation::phone($requirePhone)),
+            'email' => ['nullable', 'email:rfc', 'max:255'],
+            'address' => ['nullable', 'string', 'max:500'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'state' => UsValidation::state(),
+            'zip' => UsValidation::zip(),
+            'primary_provider_id' => [
+                'nullable',
+                Rule::exists('users', 'id')->where(fn ($q) => $q->where('clinic_id', $user->clinic_id)),
+            ],
+            'emergency_contact' => ['nullable', 'array'],
+            'emergency_contact.name' => ['nullable', 'string', 'max:120'],
+            'emergency_contact.phone' => UsValidation::phone(),
+            'emergency_contact.relation' => ['nullable', 'string', 'max:60'],
+            'emergency_contact.preferred_name' => ['nullable', 'string', 'max:120'],
+            'emergency_contact.alternate_phone' => UsValidation::phone(),
+            'emergency_contact.preferred_contact' => ['nullable', 'string', 'max:40'],
+            'emergency_contact.best_time' => ['nullable', 'string', 'max:40'],
+            'emergency_contact.country' => ['nullable', 'string', 'max:40'],
+            'emergency_contact.subscriber_name' => ['nullable', 'string', 'max:120'],
+            'emergency_contact.relationship_to_holder' => ['nullable', 'string', 'max:60'],
+            'insurance' => ['nullable', 'array'],
+            'insurance.type' => ['nullable', 'string', 'in:primary,secondary'],
+            'insurance.payer_name' => ['nullable', 'string', 'max:255'],
+            'insurance.policy_number' => ['required_with:insurance.payer_name', 'nullable', 'string', 'max:255'],
+            'insurance.group_number' => ['nullable', 'string', 'max:255'],
+            'insurance.expires_on' => ['nullable', 'date'],
+            'secondary_insurance' => ['nullable', 'array'],
+            'secondary_insurance.payer_name' => ['nullable', 'string', 'max:255'],
+            'secondary_insurance.policy_number' => ['required_with:secondary_insurance.payer_name', 'nullable', 'string', 'max:255'],
+            'secondary_insurance.group_number' => ['nullable', 'string', 'max:255'],
+            'pcp_name' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        // Never accept clinical free-text from Front Desk / this demographics editor.
+        unset($data['allergies'], $data['active_medications']);
+
+        if (array_key_exists('phone', $data)) {
+            $data['phone'] = UsValidation::normalizePhone($data['phone'] ?? null);
+        }
+        if (array_key_exists('state', $data)) {
+            $data['state'] = UsValidation::normalizeState($data['state'] ?? null);
+        }
+        if (array_key_exists('zip', $data)) {
+            $data['zip'] = UsValidation::normalizeZip($data['zip'] ?? null);
+        }
+        if (! empty($data['emergency_contact']['phone'])) {
+            $data['emergency_contact']['phone'] = UsValidation::normalizePhone($data['emergency_contact']['phone']);
+        }
+        if (! empty($data['emergency_contact']['alternate_phone'])) {
+            $data['emergency_contact']['alternate_phone'] = UsValidation::normalizePhone(
+                $data['emergency_contact']['alternate_phone']
+            );
+        }
+
+        $emergency = $data['emergency_contact'] ?? $patient->emergency_contact ?? [];
+        if (! empty($data['pcp_name'])) {
+            $emergency = array_merge(is_array($emergency) ? $emergency : [], [
+                'pcp_name' => $data['pcp_name'],
+            ]);
+        }
+        if (array_key_exists('emergency_contact', $data) || array_key_exists('pcp_name', $data)) {
+            $data['emergency_contact'] = $emergency ?: null;
+        }
+
+        $addressParts = array_filter([
+            $data['address'] ?? null,
+            $data['city'] ?? null,
+            isset($data['state'], $data['zip'])
+                ? trim(($data['state'] ?? '').' '.($data['zip'] ?? ''))
+                : ($data['state'] ?? $data['zip'] ?? null),
+        ]);
+        if ($addressParts !== []) {
+            $data['address'] = implode(', ', $addressParts);
+        }
+
+        $patient->update(
+            collect($data)->except(['insurance', 'secondary_insurance', 'city', 'state', 'zip', 'pcp_name'])->all()
+        );
+
+        if (array_key_exists('insurance', $data)) {
+            $this->syncInsurance($patient, 'primary', $data['insurance'] ?? null);
+        }
+        if (array_key_exists('secondary_insurance', $data)) {
+            $this->syncInsurance($patient, 'secondary', $data['secondary_insurance'] ?? null);
+        }
+
+        $this->audit->log(
+            'patient.update',
+            'allowed',
+            $user,
+            $request,
+            $patient->id,
+            Patient::class,
+            $patient->id
+        );
+
+        $patient->refresh()->load('insurances');
+
+        $payload = $user->hasAnyRole(Roles::demographicsOnly())
+            ? PhiGate::demographicsPayload($patient)
+            : $patient->toArray();
+
+        return ApiResponse::success($payload, 'Patient updated');
+    }
+
+    private function syncInsurance(Patient $patient, string $type, ?array $payload): void
+    {
+        $existing = $patient->insurances()->where('type', $type)->first();
+        $payer = trim((string) ($payload['payer_name'] ?? ''));
+
+        if ($payer === '') {
+            $existing?->delete();
+
+            return;
+        }
+
+        $attrs = [
+            'clinic_id' => $patient->clinic_id,
+            'patient_id' => $patient->id,
+            'type' => $type,
+            'payer_name' => $payer,
+            'policy_number' => $payload['policy_number'] ?? '',
+            'group_number' => $payload['group_number'] ?? null,
+            'expires_on' => $payload['expires_on'] ?? null,
+        ];
+
+        if ($existing) {
+            $existing->update($attrs);
+        } else {
+            PatientInsurance::create($attrs);
+        }
     }
 }

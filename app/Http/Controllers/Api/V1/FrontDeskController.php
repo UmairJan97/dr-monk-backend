@@ -9,6 +9,7 @@ use App\Models\Patient;
 use App\Models\User;
 use App\Services\AppointmentBookingService;
 use App\Services\AuditService;
+use App\Services\NotificationService;
 use App\Support\ApiResponse;
 use App\Support\Roles;
 use Carbon\Carbon;
@@ -22,6 +23,7 @@ class FrontDeskController extends Controller
     public function __construct(
         private AppointmentBookingService $booking,
         private AuditService $audit,
+        private NotificationService $notifications,
     ) {}
 
     public function dashboard(Request $request): JsonResponse
@@ -275,8 +277,25 @@ class FrontDeskController extends Controller
             $appointment->id
         );
 
+        $appointment->loadMissing(['patient:id,first_name,last_name,mrn', 'provider:id,name']);
+        $mrn = $appointment->patient?->mrn;
+        // No clinical PHI in body — MRN + queue cue only.
+        $this->notifications->notifyVitalNurses(
+            (int) $appointment->clinic_id,
+            'appointment.checked_in',
+            'Patient checked in',
+            $mrn
+                ? "Checked in (MRN {$mrn}) — ready for vitals."
+                : 'Patient checked in — ready for vitals.',
+            [
+                'appointment_id' => $appointment->id,
+                'patient_id' => $appointment->patient_id,
+                'status' => 'waiting',
+            ]
+        );
+
         return ApiResponse::success(
-            $this->appointmentPayload($appointment->fresh()->load(['patient:id,first_name,last_name,mrn', 'provider:id,name'])),
+            $this->appointmentPayload($appointment),
             'Patient checked in'
         );
     }

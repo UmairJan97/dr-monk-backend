@@ -45,6 +45,19 @@ class ClinicalController extends Controller
             ->orderBy('starts_at')
             ->get();
 
+        $completedToday = Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->where('provider_id', $user->id)
+            ->where('status', 'completed')
+            ->where(function ($q) {
+                $q->whereDate('starts_at', today())
+                    ->orWhereDate('updated_at', today());
+            })
+            ->with(['patient:id,first_name,last_name,mrn,date_of_birth', 'provider:id,name'])
+            ->orderByDesc('updated_at')
+            ->limit(30)
+            ->get();
+
         $incompleteNotes = ClinicalNote::query()
             ->where('clinic_id', $clinicId)
             ->where('author_id', $user->id)
@@ -89,11 +102,13 @@ class ClinicalController extends Controller
         return ApiResponse::success([
             'stats' => [
                 'ready_queue' => $queue->count(),
+                'completed_today' => $completedToday->count(),
                 'incomplete_notes' => $incompleteNotes,
                 'open_labs' => $openLabs,
                 'vital_alerts' => $vitalAlerts->count(),
             ],
             'queue' => $queue,
+            'completed_today' => $completedToday,
             'vital_alerts' => $vitalAlerts->take(5)->values(),
         ]);
     }
@@ -426,16 +441,9 @@ class ClinicalController extends Controller
         abort_unless($appointment->clinic_id === $request->user()->clinic_id, 403);
         abort_unless($appointment->provider_id === $request->user()->id, 403);
 
-        if (! in_array($appointment->status, ['ready_for_provider', 'vitals_completed', 'in_progress'], true)) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'status' => ['Visit cannot be started from status: '.$appointment->status],
-            ]);
-        }
-
         $user = $request->user();
-        $appointment->update(['status' => 'in_progress']);
 
-        // Ensure PHI assignment so chart APIs stay open for this provider.
+        // Always ensure PHI assignment so clinical writes stay allowed for this provider.
         if (! $user->assignedPatients()->where('patients.id', $appointment->patient_id)->exists()) {
             $user->assignedPatients()->attach($appointment->patient_id, [
                 'clinic_id' => $appointment->clinic_id,
@@ -444,6 +452,20 @@ class ClinicalController extends Controller
         $patient = $appointment->patient;
         if ($patient && ! $patient->primary_provider_id) {
             $patient->update(['primary_provider_id' => $user->id]);
+        }
+
+        if ($appointment->status === 'completed') {
+            return ApiResponse::success($appointment->fresh(), 'Visit already completed');
+        }
+
+        if (! in_array($appointment->status, ['ready_for_provider', 'vitals_completed', 'in_progress'], true)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'status' => ['Visit cannot be started from status: '.$appointment->status],
+            ]);
+        }
+
+        if ($appointment->status !== 'in_progress') {
+            $appointment->update(['status' => 'in_progress']);
         }
 
         return ApiResponse::success($appointment->fresh(), 'Visit started');

@@ -70,6 +70,9 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::post('patients', [PatientController::class, 'store'])
             ->middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN);
 
+        Route::patch('patients/{patient}', [PatientController::class, 'update'])
+            ->middleware(['role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN, 'patient.access']);
+
         Route::middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN)->prefix('front-desk')->group(function () {
             Route::get('dashboard', [FrontDeskController::class, 'dashboard']);
             Route::get('queue', [FrontDeskController::class, 'todayQueue']);

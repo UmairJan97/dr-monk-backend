@@ -82,6 +82,32 @@ class NotificationService
         return $created;
     }
 
+    /**
+     * Notify Vital Nurses — e.g. Front Desk check-in.
+     *
+     * @return list<ClinicNotification>
+     */
+    public function notifyVitalNurses(
+        int $clinicId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = [],
+    ): array {
+        $nurses = User::query()
+            ->where('clinic_id', $clinicId)
+            ->where('is_active', true)
+            ->role(Roles::VITAL_NURSE)
+            ->get();
+
+        $created = [];
+        foreach ($nurses as $nurse) {
+            $created[] = $this->notifyUser($nurse, $type, $title, $body, $data);
+        }
+
+        return $created;
+    }
+
     private function scrubPhi(string $body): string
     {
         // Strip obvious PHI patterns from notification text.

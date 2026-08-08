@@ -11,7 +11,7 @@ class Vital extends Model
         'clinic_id', 'patient_id', 'appointment_id', 'recorded_by',
         'height_cm', 'weight_kg', 'bmi', 'temperature_c', 'bp_systolic',
         'bp_diastolic', 'pulse', 'respiratory_rate', 'spo2', 'pain_scale',
-        'glucose', 'alerts',
+        'glucose', 'notes', 'alerts',
     ];
 
     protected function casts(): array

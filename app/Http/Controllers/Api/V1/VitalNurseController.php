@@ -27,6 +27,23 @@ class VitalNurseController extends Controller
             ->whereIn('status', ['waiting', 'ready_for_vitals', 'vitals_completed'])
             ->whereDate('starts_at', today());
 
+        $recent = Vital::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('created_at', today())
+            ->with(['recorder:id,name', 'patient:id,first_name,last_name,mrn'])
+            ->latest()
+            ->limit(8)
+            ->get()
+            ->map(fn (Vital $v) => [
+                ...$this->vitalPayload($v),
+                'patient' => $v->patient ? [
+                    'id' => $v->patient->id,
+                    'first_name' => $v->patient->first_name,
+                    'last_name' => $v->patient->last_name,
+                    'mrn' => $v->patient->mrn,
+                ] : null,
+            ]);
+
         return ApiResponse::success([
             'stats' => [
                 'waiting' => (clone $queue)->where('status', 'waiting')->count(),
@@ -40,6 +57,7 @@ class VitalNurseController extends Controller
                     ->filter(fn (Vital $v) => ! empty($v->alerts))
                     ->count(),
             ],
+            'recent_vitals' => $recent,
         ]);
     }
 
@@ -77,6 +95,7 @@ class VitalNurseController extends Controller
 
         $latest = Vital::query()
             ->where('patient_id', $patient->id)
+            ->with('recorder:id,name')
             ->latest()
             ->limit(5)
             ->get()
@@ -152,6 +171,7 @@ class VitalNurseController extends Controller
             'spo2' => ['required', 'integer', 'min:70', 'max:100'],
             'pain_scale' => ['nullable', 'integer', 'min:0', 'max:10'],
             'glucose' => ['nullable', 'numeric', 'min:20', 'max:800'],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         if ((int) $data['bp_systolic'] <= (int) $data['bp_diastolic']) {
@@ -190,6 +210,7 @@ class VitalNurseController extends Controller
             'spo2' => (int) $data['spo2'],
             'pain_scale' => isset($data['pain_scale']) ? (int) $data['pain_scale'] : null,
             'glucose' => isset($data['glucose']) ? (float) $data['glucose'] : null,
+            'notes' => isset($data['notes']) ? trim((string) $data['notes']) : null,
         ];
 
         $bmi = Vital::calculateBmi($heightCm, $weightKg);
@@ -203,7 +224,7 @@ class VitalNurseController extends Controller
             'recorded_by' => $request->user()->id,
             'bmi' => $bmi,
             'alerts' => $alerts,
-        ]);
+        ])->load('recorder:id,name');
 
         if (! empty($data['appointment_id'])) {
             Appointment::where('id', $data['appointment_id'])->update([
@@ -275,6 +296,7 @@ class VitalNurseController extends Controller
             'spo2' => $vital->spo2,
             'pain_scale' => $vital->pain_scale,
             'glucose' => $vital->glucose,
+            'notes' => $vital->notes,
             'bmi' => $vital->bmi,
             'alerts' => $vital->alerts ?? [],
             'alert_labels' => Vital::alertLabels($vital->alerts ?? []),
