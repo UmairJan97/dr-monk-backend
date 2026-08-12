@@ -84,20 +84,35 @@ class ClinicalController extends Controller
             ->get()
             ->filter(fn (Vital $v) => ! empty($v->alerts))
             ->values()
-            ->map(fn (Vital $v) => [
-                'id' => $v->id,
-                'patient_id' => $v->patient_id,
-                'patient' => $v->patient ? [
-                    'id' => $v->patient->id,
-                    'first_name' => $v->patient->first_name,
-                    'last_name' => $v->patient->last_name,
-                    'mrn' => $v->patient->mrn,
-                ] : null,
-                'bp_systolic' => $v->bp_systolic,
-                'temperature_c' => $v->temperature_c,
-                'alerts' => $v->alerts,
-                'alert_labels' => Vital::alertLabels($v->alerts ?? []),
-            ]);
+            ->map(function (Vital $v) use ($clinicId, $user) {
+                $appointmentId = $v->appointment_id;
+                if (! $appointmentId) {
+                    $appointmentId = Appointment::query()
+                        ->where('clinic_id', $clinicId)
+                        ->where('provider_id', $user->id)
+                        ->where('patient_id', $v->patient_id)
+                        ->whereDate('starts_at', today())
+                        ->whereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed'])
+                        ->orderByDesc('starts_at')
+                        ->value('id');
+                }
+
+                return [
+                    'id' => $v->id,
+                    'patient_id' => $v->patient_id,
+                    'appointment_id' => $appointmentId,
+                    'patient' => $v->patient ? [
+                        'id' => $v->patient->id,
+                        'first_name' => $v->patient->first_name,
+                        'last_name' => $v->patient->last_name,
+                        'mrn' => $v->patient->mrn,
+                    ] : null,
+                    'bp_systolic' => $v->bp_systolic,
+                    'temperature_c' => $v->temperature_c,
+                    'alerts' => $v->alerts,
+                    'alert_labels' => Vital::alertLabels($v->alerts ?? []),
+                ];
+            });
 
         return ApiResponse::success([
             'stats' => [
@@ -155,16 +170,26 @@ class ClinicalController extends Controller
                     $tempF = $v->temperature_c !== null
                         ? round(($v->temperature_c * 9 / 5) + 32, 1)
                         : null;
+                    $heightIn = $v->height_cm !== null ? round($v->height_cm / 2.54, 1) : null;
+                    $weightLb = $v->weight_kg !== null ? round($v->weight_kg / 0.45359237, 1) : null;
 
                     return [
                         'id' => $v->id,
                         'bp_systolic' => $v->bp_systolic,
                         'bp_diastolic' => $v->bp_diastolic,
                         'pulse' => $v->pulse,
+                        'respiratory_rate' => $v->respiratory_rate,
                         'spo2' => $v->spo2,
+                        'pain_scale' => $v->pain_scale,
+                        'glucose' => $v->glucose,
+                        'notes' => $v->notes,
                         'bmi' => $v->bmi,
                         'temperature_c' => $v->temperature_c,
                         'temperature_f' => $tempF,
+                        'height_cm' => $v->height_cm,
+                        'height_in' => $heightIn,
+                        'weight_kg' => $v->weight_kg,
+                        'weight_lb' => $weightLb,
                         'alerts' => $v->alerts ?? [],
                         'alert_labels' => Vital::alertLabels($v->alerts ?? []),
                         'created_at' => optional($v->created_at)?->toIso8601String(),
@@ -475,6 +500,10 @@ class ClinicalController extends Controller
     {
         abort_unless($appointment->clinic_id === $request->user()->clinic_id, 403);
         abort_unless($appointment->provider_id === $request->user()->id, 403);
+
+        if ($appointment->status === 'completed') {
+            return ApiResponse::success($appointment->fresh(), 'Visit already completed');
+        }
 
         if (! in_array($appointment->status, ['in_progress', 'ready_for_provider', 'vitals_completed'], true)) {
             throw \Illuminate\Validation\ValidationException::withMessages([

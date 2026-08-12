@@ -93,6 +93,32 @@ class EmrNpTest extends TestCase
             ->assertJsonPath('intent', 'np_prescribe');
     }
 
+    public function test_appointment_provider_np_can_open_chart_without_pivot(): void
+    {
+        [$clinic, $np] = $this->world(canPrescribe: true, license: 'NY');
+        $patient = Patient::create([
+            'clinic_id' => $clinic->id,
+            'mrn' => 'MRN-NP2',
+            'first_name' => 'Visit',
+            'last_name' => 'Only',
+            'date_of_birth' => '1991-02-02',
+            'primary_provider_id' => null,
+        ]);
+        Appointment::create([
+            'clinic_id' => $clinic->id,
+            'patient_id' => $patient->id,
+            'provider_id' => $np->id,
+            'starts_at' => now()->setTime(15, 0),
+            'ends_at' => now()->setTime(15, 30),
+            'status' => 'ready_for_provider',
+        ]);
+        Sanctum::actingAs($np);
+
+        $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')
+            ->assertOk()
+            ->assertJsonPath('data.patient.id', $patient->id);
+    }
+
     /**
      * @return array{0: Clinic, 1: User, 2: Patient}
      */

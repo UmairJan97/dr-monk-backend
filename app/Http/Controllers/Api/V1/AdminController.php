@@ -6,10 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\InviteUserRequest;
 use App\Models\Appointment;
 use App\Models\AuditLog;
+use App\Models\Claim;
 use App\Models\Clinic;
 use App\Models\Patient;
 use App\Models\User;
 use App\Models\UserInvitation;
+use App\Models\Vital;
+use Carbon\Carbon;
 use App\Services\AuditService;
 use App\Support\ApiResponse;
 use App\Support\Permissions;
@@ -27,15 +30,173 @@ class AdminController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $clinicId = $request->user()->clinic_id;
+        $today = today();
+        $yesterday = today()->subDay();
+        $weekStart = now()->subDays(6)->startOfDay();
+        $prevWeekStart = now()->subDays(13)->startOfDay();
+        $prevWeekEnd = now()->subDays(7)->endOfDay();
+
+        $patientsToday = (int) Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('starts_at', $today)
+            ->distinct()
+            ->count('patient_id');
+        $patientsYesterday = (int) Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('starts_at', $yesterday)
+            ->distinct()
+            ->count('patient_id');
+
+        $apptsToday = Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('starts_at', $today)
+            ->count();
+        $apptsYesterday = Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('starts_at', $yesterday)
+            ->count();
+
+        $criticalToday = Vital::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('created_at', $today)
+            ->whereNotNull('alerts')
+            ->get(['alerts'])
+            ->filter(fn (Vital $v) => ! empty($v->alerts))
+            ->count();
+        $criticalYesterday = Vital::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('created_at', $yesterday)
+            ->whereNotNull('alerts')
+            ->get(['alerts'])
+            ->filter(fn (Vital $v) => ! empty($v->alerts))
+            ->count();
+
+        $revenueWeek = (float) Claim::query()
+            ->where('clinic_id', $clinicId)
+            ->where('created_at', '>=', $weekStart)
+            ->sum('billed_amount');
+        $revenuePrevWeek = (float) Claim::query()
+            ->where('clinic_id', $clinicId)
+            ->whereBetween('created_at', [$prevWeekStart, $prevWeekEnd])
+            ->sum('billed_amount');
+
+        $weeklyVisits = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $day = now()->subDays($i);
+            $weeklyVisits[] = [
+                'label' => $day->format('D'),
+                'date' => $day->toDateString(),
+                'count' => Appointment::query()
+                    ->where('clinic_id', $clinicId)
+                    ->whereDate('starts_at', $day)
+                    ->count(),
+            ];
+        }
+
+        $mixRaw = Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->where('starts_at', '>=', now()->subDays(30))
+            ->selectRaw('COALESCE(NULLIF(visit_type, ""), "general") as visit_type, COUNT(*) as total')
+            ->groupBy('visit_type')
+            ->pluck('total', 'visit_type');
+
+        $mixTotal = max(1, (int) $mixRaw->sum());
+        $caseMix = $mixRaw->map(fn ($count, $type) => [
+            'label' => Str::title(str_replace('_', ' ', (string) $type)),
+            'key' => (string) $type,
+            'count' => (int) $count,
+            'percent' => round(((int) $count / $mixTotal) * 100),
+        ])->values()->all();
+
+        $todaysAppointments = Appointment::query()
+            ->where('clinic_id', $clinicId)
+            ->whereDate('starts_at', $today)
+            ->with(['patient:id,first_name,last_name,mrn', 'provider:id,name'])
+            ->orderBy('starts_at')
+            ->limit(10)
+            ->get()
+            ->map(function (Appointment $a) {
+                $starts = $a->starts_at instanceof Carbon ? $a->starts_at : Carbon::parse($a->starts_at);
+                $ends = $a->ends_at ? ($a->ends_at instanceof Carbon ? $a->ends_at : Carbon::parse($a->ends_at)) : null;
+                $mins = $ends ? max(5, $starts->diffInMinutes($ends)) : 30;
+
+                return [
+                    'id' => $a->id,
+                    'starts_at' => $starts->toIso8601String(),
+                    'time' => $starts->format('H:i'),
+                    'duration_minutes' => $mins,
+                    'status' => $a->status,
+                    'visit_type' => $a->visit_type,
+                    'patient' => $a->patient ? [
+                        'id' => $a->patient->id,
+                        'first_name' => $a->patient->first_name,
+                        'last_name' => $a->patient->last_name,
+                        'mrn' => $a->patient->mrn,
+                    ] : null,
+                    'provider' => $a->provider ? ['name' => $a->provider->name] : null,
+                ];
+            })
+            ->values()
+            ->all();
+
+        $recentPatients = Patient::query()
+            ->where('clinic_id', $clinicId)
+            ->latest('updated_at')
+            ->limit(8)
+            ->get(['id', 'mrn', 'first_name', 'last_name', 'date_of_birth', 'gender', 'updated_at'])
+            ->map(function (Patient $p) {
+                $vital = Vital::query()
+                    ->where('patient_id', $p->id)
+                    ->latest('id')
+                    ->first(['alerts']);
+                $alerts = $vital?->alerts ?? [];
+                $hasAlerts = is_array($alerts) && count($alerts) > 0;
+                $age = $p->date_of_birth ? $p->date_of_birth->age : null;
+                $sex = $p->gender ? strtoupper(substr((string) $p->gender, 0, 1)) : '';
+
+                return [
+                    'id' => $p->id,
+                    'mrn' => $p->mrn,
+                    'first_name' => $p->first_name,
+                    'last_name' => $p->last_name,
+                    'initials' => strtoupper(substr($p->first_name, 0, 1).substr($p->last_name, 0, 1)),
+                    'summary' => trim(($hasAlerts ? 'Alert vitals' : 'Routine follow-up').($age !== null ? " · {$age}{$sex}" : '')),
+                    'status' => $hasAlerts ? 'ALERT' : 'STABLE',
+                ];
+            })
+            ->values()
+            ->all();
+
+        $pctDelta = static function (float|int $current, float|int $previous): float {
+            if ((float) $previous === 0.0) {
+                return $current > 0 ? 100.0 : 0.0;
+            }
+
+            return round((((float) $current - (float) $previous) / (float) $previous) * 100, 1);
+        };
 
         return ApiResponse::success([
             'stats' => [
                 'active_users' => User::query()->where('clinic_id', $clinicId)->where('is_active', true)->count(),
                 'patients' => Patient::query()->where('clinic_id', $clinicId)->count(),
-                'todays_appointments' => Appointment::query()->where('clinic_id', $clinicId)->whereDate('starts_at', today())->count(),
+                'patients_today' => $patientsToday,
+                'todays_appointments' => $apptsToday,
                 'waiting' => Appointment::query()->where('clinic_id', $clinicId)->whereIn('status', ['waiting', 'ready_for_vitals'])->count(),
                 'open_invites' => UserInvitation::query()->where('clinic_id', $clinicId)->whereNull('accepted_at')->where('expires_at', '>', now())->count(),
+                'critical_cases' => $criticalToday,
+                'revenue_week' => $revenueWeek,
             ],
+            'trends' => [
+                'patients_today_pct' => $pctDelta($patientsToday, $patientsYesterday),
+                'appointments_pct' => $pctDelta($apptsToday, $apptsYesterday),
+                'critical_delta' => $criticalToday - $criticalYesterday,
+                'revenue_week_pct' => $pctDelta($revenueWeek, $revenuePrevWeek),
+            ],
+            'weekly_visits' => $weeklyVisits,
+            'case_mix' => $caseMix,
+            'todays_appointments' => $todaysAppointments,
+            'recent_patients' => $recentPatients,
+            'currency' => config('drmonk.currency', 'USD'),
         ]);
     }
 

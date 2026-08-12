@@ -134,6 +134,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::middleware('role:'.Roles::COUNSELOR)->prefix('counselor')->group(function () {
             Route::get('dashboard', [CounselorController::class, 'dashboard']);
             Route::get('schedule', [CounselorController::class, 'schedule']);
+            Route::post('appointments/{appointment}/complete', [CounselorController::class, 'completeSession']);
             Route::get('patients/{patient}/doctor-diagnosis', [CounselorController::class, 'doctorDiagnosis'])->middleware('patient.access');
             Route::get('patients/{patient}/sessions', [CounselorController::class, 'sessions'])->middleware('patient.access');
             Route::post('patients/{patient}/sessions', [CounselorController::class, 'storeSession'])->middleware('patient.access');

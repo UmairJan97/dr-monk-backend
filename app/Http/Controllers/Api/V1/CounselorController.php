@@ -43,6 +43,7 @@ class CounselorController extends Controller
                     ->count(),
             ],
             'queue' => (clone $today)
+                ->whereNotIn('status', ['completed', 'cancelled', 'no_show'])
                 ->with(['patient:id,first_name,last_name,mrn'])
                 ->orderBy('starts_at')
                 ->limit(20)
@@ -81,6 +82,12 @@ class CounselorController extends Controller
 
         return ApiResponse::success([
             'read_only' => true,
+            'patient' => [
+                'id' => $patient->id,
+                'first_name' => $patient->first_name,
+                'last_name' => $patient->last_name,
+                'mrn' => $patient->mrn,
+            ],
             'diagnoses' => $diagnoses,
         ]);
     }
@@ -218,5 +225,25 @@ class CounselorController extends Controller
         ]);
 
         return ApiResponse::success($billingCode->fresh(), 'Billing code updated');
+    }
+
+    public function completeSession(Request $request, Appointment $appointment): JsonResponse
+    {
+        abort_unless($appointment->clinic_id === $request->user()->clinic_id, 403);
+        abort_unless($appointment->provider_id === $request->user()->id, 403);
+
+        if ($appointment->status === 'completed') {
+            return ApiResponse::success($appointment->fresh(), 'Session already completed');
+        }
+
+        if (in_array($appointment->status, ['cancelled', 'no_show'], true)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'status' => ['Session cannot be completed from status: '.$appointment->status],
+            ]);
+        }
+
+        $appointment->update(['status' => 'completed']);
+
+        return ApiResponse::success($appointment->fresh(), 'Session completed');
     }
 }

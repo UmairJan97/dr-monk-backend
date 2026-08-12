@@ -70,8 +70,13 @@ class CodingSuggestService
 
     private function therapySuggestions(?string $text, ?int $durationMinutes = null): array
     {
-        $long = ($durationMinutes !== null && $durationMinutes >= 53)
-            || ($text && mb_strlen($text) > 120);
+        // Prefer explicit session length. Only fall back to note length when minutes omitted.
+        $minutes = $durationMinutes;
+        if ($minutes === null && $text && mb_strlen($text) > 120) {
+            $minutes = 60;
+        }
+        $minutes ??= 45;
+        $long = $minutes >= 53;
 
         return [
             [
