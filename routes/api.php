@@ -34,6 +34,10 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::post('auth/logout-all', [AuthController::class, 'logoutAll']);
         Route::get('auth/me', [AuthController::class, 'me']);
+        Route::patch('auth/me', [AuthController::class, 'updateMe']);
+        Route::post('auth/me/avatar', [AuthController::class, 'uploadAvatar']);
+        Route::delete('auth/me/avatar', [AuthController::class, 'destroyAvatar']);
+        Route::get('auth/me/avatar', [AuthController::class, 'avatar']);
         Route::post('auth/sleep', [AuthController::class, 'sleep']);
         Route::post('auth/wake', [AuthController::class, 'wake'])->middleware('throttle:10,1');
 

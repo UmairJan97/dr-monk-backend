@@ -11,7 +11,9 @@ use App\Models\UserInvitation;
 use App\Support\Permissions;
 use App\Support\Roles;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -61,6 +63,43 @@ class EmrFoundationTest extends TestCase
             ->assertJsonStructure(['data' => ['token', 'user' => ['permissions']]]);
 
         $this->assertNotEmpty($response->json('data.token'));
+        $this->assertFalse($response->json('data.user.has_avatar'));
+    }
+
+    public function test_user_can_update_own_profile_and_avatar(): void
+    {
+        Storage::fake('avatars');
+        [, $desk] = $this->seedClinicWorld();
+        Sanctum::actingAs($desk);
+
+        $this->patchJson('/api/v1/auth/me', [
+            'name' => 'Desk Updated',
+            'email' => 'desk.updated@demo.local',
+            'phone' => '555-0100',
+        ])->assertOk()
+            ->assertJsonPath('data.name', 'Desk Updated')
+            ->assertJsonPath('data.email', 'desk.updated@demo.local')
+            ->assertJsonPath('data.phone', '555-0100')
+            ->assertJsonPath('data.has_avatar', false);
+
+        $file = UploadedFile::fake()->image('me.jpg', 80, 80);
+
+        $this->post('/api/v1/auth/me/avatar', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('data.has_avatar', true);
+
+        $this->assertNotNull($desk->fresh()->avatar_path);
+        Storage::disk('avatars')->assertExists($desk->fresh()->avatar_path);
+
+        $this->get('/api/v1/auth/me/avatar')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/jpeg');
+
+        $this->deleteJson('/api/v1/auth/me/avatar')
+            ->assertOk()
+            ->assertJsonPath('data.has_avatar', false);
+
+        $this->assertNull($desk->fresh()->avatar_path);
     }
 
     public function test_logout_revokes_current_token(): void

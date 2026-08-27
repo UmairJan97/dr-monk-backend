@@ -7,6 +7,7 @@ use App\Http\Requests\Auth\AcceptInvitationRequest;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Http\Requests\Auth\UpdateProfileRequest;
 use App\Http\Requests\Auth\WakePinRequest;
 use App\Models\User;
 use App\Models\UserInvitation;
@@ -20,8 +21,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 
 class AuthController extends Controller
 {
@@ -131,6 +134,79 @@ class AuthController extends Controller
         $user = $request->user();
 
         return ApiResponse::success($this->userPayload($user));
+    }
+
+    public function updateMe(UpdateProfileRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->update($request->validated());
+        $this->audit->log('auth.profile_updated', 'allowed', $user, $request);
+
+        return ApiResponse::success($this->userPayload($user->fresh()), 'Profile updated');
+    }
+
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'file' => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120'],
+        ]);
+
+        $user = $request->user();
+        $file = $data['file'];
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        }
+
+        $path = $user->id.'/'.Str::uuid()->toString().'.'.$ext;
+        Storage::disk('avatars')->putFileAs(
+            $user->id,
+            $file,
+            basename($path),
+        );
+
+        $previous = $user->avatar_path;
+        $user->update(['avatar_path' => $path]);
+        if ($previous && $previous !== $path) {
+            Storage::disk('avatars')->delete($previous);
+        }
+
+        $this->audit->log('auth.avatar_updated', 'allowed', $user, $request);
+
+        return ApiResponse::success($this->userPayload($user->fresh()), 'Profile photo updated');
+    }
+
+    public function destroyAvatar(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if ($user->avatar_path) {
+            Storage::disk('avatars')->delete($user->avatar_path);
+            $user->update(['avatar_path' => null]);
+        }
+
+        $this->audit->log('auth.avatar_removed', 'allowed', $user, $request);
+
+        return ApiResponse::success($this->userPayload($user->fresh()), 'Profile photo removed');
+    }
+
+    public function avatar(Request $request): Response
+    {
+        $user = $request->user();
+        abort_unless($user && $user->avatar_path, 404, 'No profile photo.');
+        abort_unless(Storage::disk('avatars')->exists($user->avatar_path), 404, 'No profile photo.');
+
+        $contents = Storage::disk('avatars')->get($user->avatar_path);
+        $mime = match (strtolower(pathinfo($user->avatar_path, PATHINFO_EXTENSION))) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'image/jpeg',
+        };
+
+        return response($contents, 200, [
+            'Content-Type' => $mime,
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function sleep(Request $request): JsonResponse
@@ -283,6 +359,8 @@ class AuthController extends Controller
             'name' => $user->name,
             'email' => $user->email,
             'phone' => $user->phone,
+            'has_avatar' => (bool) $user->avatar_path,
+            'avatar_rev' => $user->avatar_path ? substr(hash('sha256', $user->avatar_path), 0, 12) : null,
             'clinic_id' => $user->clinic_id,
             'roles' => $user->getRoleNames()->values()->all(),
             // Permission checks stay on the API; FE routes by role only.

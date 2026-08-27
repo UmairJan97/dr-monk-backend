@@ -38,6 +38,15 @@ return [
             'report' => false,
         ],
 
+        // Staff profile photos — private, not patient PHI.
+        'avatars' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/avatars'),
+            'visibility' => 'private',
+            'throw' => false,
+            'report' => false,
+        ],
+
         // PHI / clinical uploads — never public. Contents encrypted at rest (AES-256 via Crypt).
         'phi' => [
             'driver' => 'local',
