@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedSafe;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -17,10 +18,10 @@ class PatientInsurance extends Model
         return [
             'expires_on' => 'date',
             'eligibility_snapshot' => 'array',
-            // AES-256-CBC at rest via APP_KEY
-            'payer_name' => 'encrypted',
-            'policy_number' => 'encrypted',
-            'group_number' => 'encrypted',
+            // AES-256-CBC at rest via APP_KEY — never 500 the patient list
+            'payer_name' => EncryptedSafe::class,
+            'policy_number' => EncryptedSafe::class,
+            'group_number' => EncryptedSafe::class,
         ];
     }
 

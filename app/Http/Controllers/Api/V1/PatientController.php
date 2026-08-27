@@ -51,15 +51,18 @@ class PatientController extends Controller
         }
 
         $perPage = min(50, max(5, (int) $request->integer('per_page', 10)));
-        $patients = $q->with('insurances')->latest()->paginate($perPage);
 
-        if ($user->hasAnyRole(Roles::demographicsOnly())) {
-            $patients->setCollection(
-                $patients->getCollection()->map(
-                    fn (Patient $p) => PhiGate::demographicsPayload($p)
-                )
-            );
+        try {
+            $patients = $q->with('insurances')->latest()->paginate($perPage);
+        } catch (\Throwable) {
+            $patients = $q->latest()->paginate($perPage);
         }
+
+        $patients->setCollection(
+            $patients->getCollection()->map(
+                fn (Patient $p) => PhiGate::listPayload($p)
+            )
+        );
 
         return ApiResponse::success([
             'current_page' => $patients->currentPage(),
@@ -167,11 +170,10 @@ class PatientController extends Controller
 
         $this->audit->log('patient.create', 'allowed', $request->user(), $request, $patient->id, Patient::class, $patient->id);
 
-        $payload = $request->user()->hasAnyRole(Roles::demographicsOnly())
-            ? PhiGate::demographicsPayload($patient)
-            : $patient->toArray();
-
-        return ApiResponse::created($payload, 'Patient registered');
+        return ApiResponse::created(
+            PhiGate::scrubForUser($request->user(), $patient),
+            'Patient registered'
+        );
     }
 
     public function show(Request $request, Patient $patient): JsonResponse
@@ -181,13 +183,21 @@ class PatientController extends Controller
             return ApiResponse::success(PhiGate::demographicsPayload($patient));
         }
 
-        $patient->load([
-            'primaryProvider:id,name',
-            'insurances',
-            'vitals' => fn ($q) => $q->latest()->limit(1),
-        ]);
+        try {
+            $patient->load([
+                'primaryProvider:id,name',
+                'insurances',
+                'vitals' => fn ($q) => $q->latest()->limit(1),
+            ]);
+        } catch (\Throwable) {
+            try {
+                $patient->load(['primaryProvider:id,name']);
+            } catch (\Throwable) {
+                // Chart still opens without relations.
+            }
+        }
 
-        return ApiResponse::success($patient);
+        return ApiResponse::success(PhiGate::scrubForUser($request->user(), $patient));
     }
 
     public function update(Request $request, Patient $patient): JsonResponse
@@ -301,13 +311,16 @@ class PatientController extends Controller
             $patient->id
         );
 
-        $patient->refresh()->load('insurances');
+        try {
+            $patient->refresh()->load('insurances');
+        } catch (\Throwable) {
+            $patient->refresh();
+        }
 
-        $payload = $user->hasAnyRole(Roles::demographicsOnly())
-            ? PhiGate::demographicsPayload($patient)
-            : $patient->toArray();
-
-        return ApiResponse::success($payload, 'Patient updated');
+        return ApiResponse::success(
+            PhiGate::scrubForUser($user, $patient),
+            'Patient updated'
+        );
     }
 
     private function syncInsurance(Patient $patient, string $type, ?array $payload): void

@@ -53,6 +53,33 @@ final class PhiGate
         ];
     }
 
+    /** Safe roster row for every role — never serialize raw encrypted models. */
+    public static function listPayload(Patient $patient): array
+    {
+        try {
+            return self::demographicsPayload($patient);
+        } catch (Throwable) {
+            return [
+                'id' => $patient->id,
+                'mrn' => $patient->mrn,
+                'first_name' => $patient->first_name,
+                'last_name' => $patient->last_name,
+                'date_of_birth' => $patient->date_of_birth instanceof \DateTimeInterface
+                    ? $patient->date_of_birth->format('Y-m-d')
+                    : $patient->date_of_birth,
+                'gender' => $patient->gender,
+                'phone' => $patient->phone,
+                'email' => $patient->email,
+                'address' => $patient->address,
+                'photo_path' => $patient->photo_path,
+                'primary_provider_id' => $patient->primary_provider_id,
+                'emergency_contact' => $patient->emergency_contact,
+                'insurance' => null,
+                'secondary_insurance' => null,
+            ];
+        }
+    }
+
     /**
      * Encrypted insurance columns throw if APP_KEY changed after write.
      * Never let that 500 the whole patients index.
@@ -92,6 +119,25 @@ final class PhiGate
             return self::demographicsPayload($patient);
         }
 
-        return $patient->toArray();
+        try {
+            $row = $patient->toArray();
+            unset($row['insurances']);
+            $row['insurance'] = self::safeInsurancePayload(
+                $patient->relationLoaded('insurances')
+                    ? $patient->insurances->firstWhere('type', 'primary')
+                    : null,
+                'primary'
+            );
+            $row['secondary_insurance'] = self::safeInsurancePayload(
+                $patient->relationLoaded('insurances')
+                    ? $patient->insurances->firstWhere('type', 'secondary')
+                    : null,
+                'secondary'
+            );
+
+            return $row;
+        } catch (Throwable) {
+            return self::listPayload($patient);
+        }
     }
 }
