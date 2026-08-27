@@ -51,13 +51,25 @@ class PatientController extends Controller
         }
 
         $perPage = min(50, max(5, (int) $request->integer('per_page', 10)));
-        $patients = $q->latest()->paginate($perPage);
+        $patients = $q->with('insurances')->latest()->paginate($perPage);
 
         if ($user->hasAnyRole(Roles::demographicsOnly())) {
-            $patients->getCollection()->transform(fn (Patient $p) => PhiGate::demographicsPayload($p));
+            $patients->setCollection(
+                $patients->getCollection()->map(
+                    fn (Patient $p) => PhiGate::demographicsPayload($p)
+                )
+            );
         }
 
-        return ApiResponse::success($patients);
+        return ApiResponse::success([
+            'current_page' => $patients->currentPage(),
+            'last_page' => $patients->lastPage(),
+            'per_page' => $patients->perPage(),
+            'total' => $patients->total(),
+            'from' => $patients->firstItem() ?? 0,
+            'to' => $patients->lastItem() ?? 0,
+            'data' => $patients->items(),
+        ]);
     }
 
     public function store(Request $request): JsonResponse
