@@ -6,6 +6,7 @@ use App\Support\Roles;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -65,6 +66,11 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function providerTasks(): HasMany
+    {
+        return $this->hasMany(ProviderTask::class);
+    }
+
     public function isLocked(): bool
     {
         return $this->locked_until && $this->locked_until->isFuture();
@@ -91,7 +97,7 @@ class User extends Authenticatable
         }
 
         if ($this->hasAnyRole(Roles::clinicalProviders())) {
-            // Assigned panel, primary PCP, or scheduled as this visit's provider.
+            // Assigned panel or primary PCP.
             if ($this->assignedPatients()->where('patients.id', $patient->id)->exists()) {
                 return true;
             }
@@ -99,10 +105,14 @@ class User extends Authenticatable
                 return true;
             }
 
+            // Own scheduled visits, or shared NP/Doctor post-vitals ready queue.
             return Appointment::query()
                 ->where('clinic_id', $this->clinic_id)
-                ->where('provider_id', $this->id)
                 ->where('patient_id', $patient->id)
+                ->where(function ($q) {
+                    $q->where('provider_id', $this->id)
+                        ->orWhereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed']);
+                })
                 ->exists();
         }
 

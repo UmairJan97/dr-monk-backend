@@ -96,11 +96,14 @@ class DatabaseSeeder extends Seeder
 
         $this->call(FrontDeskDemoSeeder::class);
         $this->call(VitalNurseDemoSeeder::class);
-        $this->call(DoctorDemoSeeder::class);
+        // NP before Doctor in demo queues (Vital → NP → Doctor)
         $this->call(NpDemoSeeder::class);
+        $this->call(DoctorDemoSeeder::class);
         $this->call(CounselorDemoSeeder::class);
         $this->call(BillingDemoSeeder::class);
         $this->call(AdminDemoSeeder::class);
         $this->call(SaasDemoSeeder::class);
+        // Exact 5 visible today-queue rows per operational role
+        $this->call(RoleFiveRecordsSeeder::class);
     }
 }

@@ -96,8 +96,10 @@ class FrontDeskExtrasController extends Controller
                 'nullable',
                 Rule::exists('patients', 'id')->where('clinic_id', $request->user()->clinic_id),
             ],
-            'minutes' => ['nullable', 'integer', 'min:15', 'max:240'],
         ]);
+
+        // Tablet / iPad intake links are always valid for 60 minutes, then expire.
+        $ttlMinutes = 60;
 
         $token = PatientIntakeSession::issueToken();
         $session = PatientIntakeSession::create([
@@ -106,7 +108,7 @@ class FrontDeskExtrasController extends Controller
             'patient_id' => $data['patient_id'] ?? null,
             'token' => $token,
             'status' => 'open',
-            'expires_at' => now()->addMinutes($data['minutes'] ?? 60),
+            'expires_at' => now()->addMinutes($ttlMinutes),
         ]);
 
         $frontend = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000')), '/');
@@ -115,6 +117,7 @@ class FrontDeskExtrasController extends Controller
             'session_id' => $session->id,
             'token' => $token,
             'expires_at' => $session->expires_at->toIso8601String(),
+            'expires_in_minutes' => $ttlMinutes,
             'intake_url' => $frontend.'/intake/'.$token,
             'patient_id' => $session->patient_id,
         ], 'Tablet intake session created');

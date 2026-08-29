@@ -18,6 +18,7 @@ use App\Services\Ai\CodingSuggestService;
 use App\Services\Ai\PatientSummaryService;
 use App\Services\Integrations\SurescriptsService;
 use App\Support\ApiResponse;
+use App\Support\Roles;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,9 +37,9 @@ class ClinicalController extends Controller
         $user = $request->user();
         $clinicId = $user->clinic_id;
 
+        // NP + Doctor share one clinic-wide post-vitals ready queue.
         $queue = Appointment::query()
             ->where('clinic_id', $clinicId)
-            ->where('provider_id', $user->id)
             ->whereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed'])
             ->whereDate('starts_at', today())
             ->with(['patient:id,first_name,last_name,mrn,date_of_birth', 'provider:id,name'])
@@ -47,7 +48,6 @@ class ClinicalController extends Controller
 
         $completedToday = Appointment::query()
             ->where('clinic_id', $clinicId)
-            ->where('provider_id', $user->id)
             ->where('status', 'completed')
             ->where(function ($q) {
                 $q->whereDate('starts_at', today())
@@ -70,26 +70,20 @@ class ClinicalController extends Controller
             ->whereIn('status', ['ordered', 'pending'])
             ->count();
 
-        $patientIds = $user->assignedPatients()->pluck('patients.id')
-            ->merge(Patient::query()->where('primary_provider_id', $user->id)->pluck('id'))
-            ->unique();
-
         $vitalAlerts = Vital::query()
             ->where('clinic_id', $clinicId)
-            ->whereIn('patient_id', $patientIds)
             ->whereDate('created_at', today())
             ->with('patient:id,first_name,last_name,mrn')
             ->latest()
-            ->limit(20)
+            ->limit(40)
             ->get()
             ->filter(fn (Vital $v) => ! empty($v->alerts))
             ->values()
-            ->map(function (Vital $v) use ($clinicId, $user) {
+            ->map(function (Vital $v) use ($clinicId) {
                 $appointmentId = $v->appointment_id;
                 if (! $appointmentId) {
                     $appointmentId = Appointment::query()
                         ->where('clinic_id', $clinicId)
-                        ->where('provider_id', $user->id)
                         ->where('patient_id', $v->patient_id)
                         ->whereDate('starts_at', today())
                         ->whereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed'])
@@ -112,7 +106,56 @@ class ClinicalController extends Controller
                     'alerts' => $v->alerts,
                     'alert_labels' => Vital::alertLabels($v->alerts ?? []),
                 ];
-            });
+            })
+            ->take(20)
+            ->values();
+
+        $latestVital = Vital::query()
+            ->where('clinic_id', $clinicId)
+            ->with([
+                'patient:id,first_name,last_name,mrn,date_of_birth,gender,phone,primary_provider_id',
+                'patient.primaryProvider:id,name',
+            ])
+            ->latest()
+            ->first();
+
+        $latestVitalPayload = null;
+        if ($latestVital) {
+            $tempF = $latestVital->temperature_c !== null
+                ? round(($latestVital->temperature_c * 9 / 5) + 32, 1)
+                : null;
+            $heightIn = $latestVital->height_cm !== null ? round($latestVital->height_cm / 2.54, 1) : null;
+            $weightLb = $latestVital->weight_kg !== null ? round($latestVital->weight_kg / 0.45359237, 1) : null;
+            $p = $latestVital->patient;
+            $latestVitalPayload = [
+                'id' => $latestVital->id,
+                'patient_id' => $latestVital->patient_id,
+                'appointment_id' => $latestVital->appointment_id,
+                'created_at' => optional($latestVital->created_at)?->toIso8601String(),
+                'bp_systolic' => $latestVital->bp_systolic,
+                'bp_diastolic' => $latestVital->bp_diastolic,
+                'pulse' => $latestVital->pulse,
+                'respiratory_rate' => $latestVital->respiratory_rate,
+                'spo2' => $latestVital->spo2,
+                'pain_scale' => $latestVital->pain_scale,
+                'glucose' => $latestVital->glucose,
+                'temperature_f' => $tempF,
+                'height_in' => $heightIn,
+                'weight_lb' => $weightLb,
+                'patient' => $p ? [
+                    'id' => $p->id,
+                    'first_name' => $p->first_name,
+                    'last_name' => $p->last_name,
+                    'mrn' => $p->mrn,
+                    'date_of_birth' => $p->date_of_birth,
+                    'gender' => $p->gender,
+                    'phone' => $p->phone,
+                    'primary_provider' => $p->primaryProvider
+                        ? ['id' => $p->primaryProvider->id, 'name' => $p->primaryProvider->name]
+                        : null,
+                ] : null,
+            ];
+        }
 
         return ApiResponse::success([
             'stats' => [
@@ -125,6 +168,7 @@ class ClinicalController extends Controller
             'queue' => $queue,
             'completed_today' => $completedToday,
             'vital_alerts' => $vitalAlerts->take(5)->values(),
+            'latest_vital' => $latestVitalPayload,
         ]);
     }
 
@@ -224,7 +268,6 @@ class ClinicalController extends Controller
         return ApiResponse::success([
             'patients_seen_today' => Appointment::query()
                 ->where('clinic_id', $clinicId)
-                ->where('provider_id', $user->id)
                 ->whereDate('starts_at', today())
                 ->whereIn('status', ['completed', 'in_progress', 'ready_for_provider'])
                 ->count(),
@@ -242,6 +285,63 @@ class ClinicalController extends Controller
                 ->whereDate('created_at', today())
                 ->count(),
         ]);
+    }
+
+    /** One latest vitals row per patient (clinic-wide) for provider dashboard / View All. */
+    public function latestVitals(Request $request): JsonResponse
+    {
+        $clinicId = $request->user()->clinic_id;
+
+        $latestIds = Vital::query()
+            ->where('clinic_id', $clinicId)
+            ->selectRaw('MAX(id) as id')
+            ->groupBy('patient_id')
+            ->pluck('id');
+
+        $items = Vital::query()
+            ->whereIn('id', $latestIds)
+            ->with(['patient:id,first_name,last_name,mrn,date_of_birth,gender'])
+            ->latest()
+            ->limit(100)
+            ->get()
+            ->map(function (Vital $v) {
+                $tempF = $v->temperature_c !== null
+                    ? round(($v->temperature_c * 9 / 5) + 32, 1)
+                    : null;
+                $heightIn = $v->height_cm !== null ? round($v->height_cm / 2.54, 1) : null;
+                $weightLb = $v->weight_kg !== null ? round($v->weight_kg / 0.45359237, 1) : null;
+                $p = $v->patient;
+
+                return [
+                    'id' => $v->id,
+                    'patient_id' => $v->patient_id,
+                    'created_at' => optional($v->created_at)?->toIso8601String(),
+                    'bp_systolic' => $v->bp_systolic,
+                    'bp_diastolic' => $v->bp_diastolic,
+                    'pulse' => $v->pulse,
+                    'respiratory_rate' => $v->respiratory_rate,
+                    'spo2' => $v->spo2,
+                    'pain_scale' => $v->pain_scale,
+                    'glucose' => $v->glucose,
+                    'temperature_f' => $tempF,
+                    'height_in' => $heightIn,
+                    'weight_lb' => $weightLb,
+                    'bmi' => $v->bmi,
+                    'alerts' => $v->alerts ?? [],
+                    'alert_labels' => Vital::alertLabels($v->alerts ?? []),
+                    'patient' => $p ? [
+                        'id' => $p->id,
+                        'first_name' => $p->first_name,
+                        'last_name' => $p->last_name,
+                        'mrn' => $p->mrn,
+                        'date_of_birth' => optional($p->date_of_birth)?->format('Y-m-d'),
+                        'gender' => $p->gender,
+                    ] : null,
+                ];
+            })
+            ->values();
+
+        return ApiResponse::success(['items' => $items]);
     }
 
     public function storeNote(Request $request, Patient $patient): JsonResponse
@@ -463,8 +563,7 @@ class ClinicalController extends Controller
 
     public function startVisit(Request $request, Appointment $appointment): JsonResponse
     {
-        abort_unless($appointment->clinic_id === $request->user()->clinic_id, 403);
-        abort_unless($appointment->provider_id === $request->user()->id, 403);
+        $this->assertSharedClinicalAccess($request, $appointment);
 
         $user = $request->user();
 
@@ -498,8 +597,7 @@ class ClinicalController extends Controller
 
     public function completeVisit(Request $request, Appointment $appointment): JsonResponse
     {
-        abort_unless($appointment->clinic_id === $request->user()->clinic_id, 403);
-        abort_unless($appointment->provider_id === $request->user()->id, 403);
+        $this->assertSharedClinicalAccess($request, $appointment);
 
         if ($appointment->status === 'completed') {
             return ApiResponse::success($appointment->fresh(), 'Visit already completed');
@@ -514,5 +612,13 @@ class ClinicalController extends Controller
         $appointment->update(['status' => 'completed']);
 
         return ApiResponse::success($appointment->fresh(), 'Visit completed');
+    }
+
+    /** Doctor and NP in the same clinic share post-vitals ready records. */
+    private function assertSharedClinicalAccess(Request $request, Appointment $appointment): void
+    {
+        $user = $request->user();
+        abort_unless($appointment->clinic_id === $user->clinic_id, 403);
+        abort_unless($user->hasAnyRole(Roles::clinicalProviders()), 403);
     }
 }

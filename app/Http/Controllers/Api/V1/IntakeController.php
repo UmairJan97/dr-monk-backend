@@ -147,9 +147,19 @@ class IntakeController extends Controller
     {
         $session = PatientIntakeSession::query()->where('token', $token)->first();
 
-        if (! $session || ! $session->isOpen()) {
+        if (! $session) {
             throw ValidationException::withMessages([
                 'token' => ['This intake link is invalid or expired.'],
+            ]);
+        }
+
+        if ($session->status === 'open' && $session->expires_at->isPast()) {
+            $session->update(['status' => 'expired']);
+        }
+
+        if (! $session->fresh()->isOpen()) {
+            throw ValidationException::withMessages([
+                'token' => ['This intake link has expired. Ask Front Desk for a new link.'],
             ]);
         }
 

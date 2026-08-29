@@ -10,8 +10,8 @@ class Vital extends Model
     protected $fillable = [
         'clinic_id', 'patient_id', 'appointment_id', 'recorded_by',
         'height_cm', 'weight_kg', 'bmi', 'temperature_c', 'bp_systolic',
-        'bp_diastolic', 'pulse', 'respiratory_rate', 'spo2', 'pain_scale',
-        'glucose', 'notes', 'alerts',
+        'bp_diastolic', 'pulse', 'respiratory_rate', 'spo2', 'oxygen_flow',
+        'pain_scale', 'glucose', 'notes', 'alerts',
     ];
 
     protected function casts(): array
@@ -22,6 +22,7 @@ class Vital extends Model
             'weight_kg' => 'float',
             'bmi' => 'float',
             'temperature_c' => 'float',
+            'oxygen_flow' => 'float',
             'glucose' => 'float',
         ];
     }

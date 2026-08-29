@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Prescription extends Model
@@ -17,5 +18,15 @@ class Prescription extends Model
     protected function casts(): array
     {
         return ['surescripts_payload' => 'array'];
+    }
+
+    public function patient(): BelongsTo
+    {
+        return $this->belongsTo(Patient::class);
+    }
+
+    public function prescriber(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'prescriber_id');
     }
 }

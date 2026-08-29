@@ -50,6 +50,7 @@ final class PhiGate
             'emergency_contact' => $patient->emergency_contact,
             'insurance' => self::safeInsurancePayload($primary, 'primary'),
             'secondary_insurance' => self::safeInsurancePayload($secondary, 'secondary'),
+            'created_at' => optional($patient->created_at)?->toIso8601String(),
         ];
     }
 
@@ -76,6 +77,7 @@ final class PhiGate
                 'emergency_contact' => $patient->emergency_contact,
                 'insurance' => null,
                 'secondary_insurance' => null,
+                'created_at' => optional($patient->created_at)?->toIso8601String(),
             ];
         }
     }
@@ -122,6 +124,12 @@ final class PhiGate
         try {
             $row = $patient->toArray();
             unset($row['insurances']);
+            if (isset($row['date_of_birth'])) {
+                $dob = $patient->date_of_birth;
+                $row['date_of_birth'] = $dob instanceof \DateTimeInterface
+                    ? $dob->format('Y-m-d')
+                    : (is_string($dob) ? substr($dob, 0, 10) : $row['date_of_birth']);
+            }
             $row['insurance'] = self::safeInsurancePayload(
                 $patient->relationLoaded('insurances')
                     ? $patient->insurances->firstWhere('type', 'primary')

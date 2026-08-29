@@ -135,6 +135,15 @@ class EmrDoctorTest extends TestCase
     public function test_unassigned_doctor_denied_chart(): void
     {
         [$clinic, $doctor, $patient] = $this->world();
+        // Patient only visible on shared ready queue / assignment — use a patient with no visit.
+        $orphan = Patient::create([
+            'clinic_id' => $clinic->id,
+            'mrn' => 'MRN-ORPHAN',
+            'first_name' => 'No',
+            'last_name' => 'Visit',
+            'date_of_birth' => '1991-01-01',
+            'primary_provider_id' => null,
+        ]);
         $other = User::factory()->create([
             'clinic_id' => $clinic->id,
             'is_active' => true,
@@ -144,7 +153,24 @@ class EmrDoctorTest extends TestCase
         $other->assignRole(Roles::DOCTOR);
         Sanctum::actingAs($other);
 
-        $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')->assertForbidden();
+        $this->getJson('/api/v1/clinical/patients/'.$orphan->id.'/chart')->assertForbidden();
+    }
+
+    public function test_doctor_and_np_share_ready_queue_chart_access(): void
+    {
+        [$clinic, $doctor, $patient] = $this->world();
+        $np = User::factory()->create([
+            'clinic_id' => $clinic->id,
+            'is_active' => true,
+            'can_prescribe' => true,
+            'license_state' => 'CA',
+            'pin_hash' => Hash::make('1234'),
+        ]);
+        $np->assignRole(Roles::NP);
+        Sanctum::actingAs($np);
+
+        // Ready-for-provider visit assigned to doctor — NP can still open chart (shared queue).
+        $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')->assertOk();
     }
 
     public function test_appointment_provider_can_open_chart_without_pivot(): void

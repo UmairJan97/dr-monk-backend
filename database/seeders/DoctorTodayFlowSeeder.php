@@ -6,13 +6,14 @@ use App\Models\Appointment;
 use App\Models\Clinic;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
+use App\Models\ProviderTask;
 use App\Models\User;
 use App\Models\Vital;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 
 /**
- * 4 Front Desk visits for TODAY → vitals done → ready for Doctor queue / alert testing.
+ * 5 Front Desk visits for TODAY → vitals done → ready for Doctor queue / alert testing.
  */
 class DoctorTodayFlowSeeder extends Seeder
 {
@@ -49,6 +50,7 @@ class DoctorTodayFlowSeeder extends Seeder
             ['James', 'Patel', '1985-08-30', 'Male', '5556111002', 'james.patel.drtoday@example.com', 'Cigna', 'CIG-DR02', 126, 80, 98.6, 72],
             ['Sofia', 'Martinez', '1997-01-18', 'Female', '5556111003', 'sofia.martinez.drtoday@example.com', 'UnitedHealthcare', 'UHC-DR03', 142, 90, 100.4, 96],
             ['William', 'Nguyen', '1978-12-05', 'Male', '5556111004', 'william.nguyen.drtoday@example.com', 'Blue Cross Blue Shield', 'BCBS-DR04', 118, 74, 98.2, 68],
+            ['Amelia', 'Brooks', '1993-06-22', 'Female', '5556111005', 'amelia.brooks.drtoday@example.com', 'Horizon', 'HOR-DR05', 124, 78, 98.7, 70],
         ];
 
         $created = [];
@@ -145,10 +147,33 @@ class DoctorTodayFlowSeeder extends Seeder
             $created[] = "{$first} {$last} · {$patient->mrn} · {$start->format('g:i A')} · {$appt->status}{$alertNote}";
         }
 
-        $this->command?->info('Doctor today flow: 4 Front Desk + vitals → ready_for_provider');
+        $this->command?->info('Doctor today flow: 5 Front Desk + vitals → ready_for_provider');
         foreach ($created as $line) {
             $this->command?->line('  - '.$line);
         }
+
+        if (! ProviderTask::query()->where('user_id', $doctor->id)->exists()) {
+            $samples = [
+                ['title' => 'Review lab results', 'patient_name' => 'Anna Roberts', 'priority' => 'high', 'due_label' => 'May 14'],
+                ['title' => 'Follow up with patient', 'patient_name' => 'John Smith', 'priority' => 'medium', 'due_label' => 'May 15'],
+                ['title' => 'Complete chart notes', 'patient_name' => 'Maria Lopez', 'priority' => 'low', 'due_label' => 'May 16'],
+            ];
+            foreach ($samples as $i => $row) {
+                ProviderTask::query()->create([
+                    'clinic_id' => $clinic->id,
+                    'user_id' => $doctor->id,
+                    'title' => $row['title'],
+                    'patient_name' => $row['patient_name'],
+                    'priority' => $row['priority'],
+                    'due_at' => now()->addDays($i),
+                    'due_label' => now()->addDays($i)->format('M j, Y g:i A'),
+                    'done' => false,
+                    'sort_order' => $i,
+                ]);
+            }
+            $this->command?->info('Seeded 3 provider tasks for doctor@demo.local');
+        }
+
         $this->command?->info('Login Doctor: doctor@demo.local / password → Ready queue / vital alerts');
     }
 }

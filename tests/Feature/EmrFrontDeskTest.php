@@ -199,12 +199,14 @@ class EmrFrontDeskTest extends TestCase
         [, $desk] = $this->world();
         Sanctum::actingAs($desk);
 
-        $session = $this->postJson('/api/v1/front-desk/intake-sessions', [
-            'minutes' => 60,
-        ])->assertCreated();
+        $session = $this->postJson('/api/v1/front-desk/intake-sessions', [])
+            ->assertCreated();
+
+        $this->assertNotEmpty($session->json('data.token'));
+        $this->assertSame(60, $session->json('data.expires_in_minutes'));
+        $this->assertNotEmpty($session->json('data.intake_url'));
 
         $token = $session->json('data.token');
-        $this->assertNotEmpty($session->json('data.intake_url'));
 
         // Public tablet endpoint (no auth)
         $this->app['auth']->forgetGuards();
@@ -253,6 +255,29 @@ class EmrFrontDeskTest extends TestCase
         $this->assertDatabaseHas('patient_intake_sessions', [
             'token' => $token,
             'status' => 'completed',
+        ]);
+    }
+
+    public function test_tablet_intake_link_expires_after_60_minutes(): void
+    {
+        [, $desk] = $this->world();
+        Sanctum::actingAs($desk);
+
+        $session = $this->postJson('/api/v1/front-desk/intake-sessions', [])
+            ->assertCreated();
+        $token = $session->json('data.token');
+
+        $this->travel(61)->minutes();
+
+        $this->app['auth']->forgetGuards();
+        $this->flushHeaders();
+
+        $this->getJson('/api/v1/intake/'.$token)
+            ->assertStatus(422);
+
+        $this->assertDatabaseHas('patient_intake_sessions', [
+            'token' => $token,
+            'status' => 'expired',
         ]);
     }
 

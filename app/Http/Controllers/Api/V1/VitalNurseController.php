@@ -116,12 +116,14 @@ class VitalNurseController extends Controller
     {
         abort_unless($request->user()->canAccessPatient($patient), 403);
 
+        $limit = min(100, max(1, (int) $request->query('limit', 50)));
+
         $items = Vital::query()
             ->where('patient_id', $patient->id)
             ->where('clinic_id', $request->user()->clinic_id)
             ->with('recorder:id,name')
             ->latest()
-            ->limit(25)
+            ->limit($limit)
             ->get()
             ->map(fn (Vital $v) => $this->vitalPayload($v));
 
@@ -169,6 +171,7 @@ class VitalNurseController extends Controller
             'pulse' => ['required', 'integer', 'min:30', 'max:220'],
             'respiratory_rate' => ['nullable', 'integer', 'min:5', 'max:60'],
             'spo2' => ['required', 'integer', 'min:70', 'max:100'],
+            'oxygen_flow' => ['nullable', 'numeric', 'min:0', 'max:15'],
             'pain_scale' => ['nullable', 'integer', 'min:0', 'max:10'],
             'glucose' => ['nullable', 'numeric', 'min:20', 'max:800'],
             'notes' => ['nullable', 'string', 'max:500'],
@@ -208,6 +211,7 @@ class VitalNurseController extends Controller
             'pulse' => (int) $data['pulse'],
             'respiratory_rate' => isset($data['respiratory_rate']) ? (int) $data['respiratory_rate'] : null,
             'spo2' => (int) $data['spo2'],
+            'oxygen_flow' => isset($data['oxygen_flow']) ? (float) $data['oxygen_flow'] : null,
             'pain_scale' => isset($data['pain_scale']) ? (int) $data['pain_scale'] : null,
             'glucose' => isset($data['glucose']) ? (float) $data['glucose'] : null,
             'notes' => isset($data['notes']) ? trim((string) $data['notes']) : null,
@@ -268,7 +272,7 @@ class VitalNurseController extends Controller
                 'patient_id' => $appointment->patient_id,
                 'status' => 'ready_for_provider',
             ],
-            $appointment->provider_id
+            null // notify all Doctors + NPs in clinic (shared ready queue)
         );
 
         return ApiResponse::success([
@@ -294,6 +298,7 @@ class VitalNurseController extends Controller
             'pulse' => $vital->pulse,
             'respiratory_rate' => $vital->respiratory_rate,
             'spo2' => $vital->spo2,
+            'oxygen_flow' => $vital->oxygen_flow,
             'pain_scale' => $vital->pain_scale,
             'glucose' => $vital->glucose,
             'notes' => $vital->notes,
