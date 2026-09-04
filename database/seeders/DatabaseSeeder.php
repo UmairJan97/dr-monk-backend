@@ -105,5 +105,9 @@ class DatabaseSeeder extends Seeder
         $this->call(SaasDemoSeeder::class);
         // Exact 5 visible today-queue rows per operational role
         $this->call(RoleFiveRecordsSeeder::class);
+        // Staff chat demo: 15 days × 10 msgs/day per role
+        $this->call(ChatDemoSeeder::class);
+        // Appointments from 2026-09-04 for 15 days (all role screens)
+        $this->call(FifteenDayScheduleSeeder::class);
     }
 }

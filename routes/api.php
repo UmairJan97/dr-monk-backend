@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AdminController;
 use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BillingController;
+use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\ClinicalController;
 use App\Http\Controllers\Api\V1\ClinicalLibraryController;
 use App\Http\Controllers\Api\V1\CounselorController;
@@ -53,6 +54,13 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::get('notifications', [NotificationController::class, 'index']);
         Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
         Route::post('notifications/{notification}/read', [NotificationController::class, 'markRead']);
+
+        Route::get('chat/inbox', [ChatController::class, 'inbox']);
+        Route::get('chat/contacts', [ChatController::class, 'contacts']);
+        Route::get('chat/thread/{peer}', [ChatController::class, 'thread']);
+        Route::post('chat/messages', [ChatController::class, 'send'])->middleware('throttle:60,1');
+        Route::post('chat/messages/read-all', [ChatController::class, 'markAllRead']);
+        Route::post('chat/messages/{message}/read', [ChatController::class, 'markRead']);
 
         Route::middleware('role:'.Roles::DOCTOR.','.Roles::NP)->group(function () {
             Route::get('tasks', [TaskController::class, 'index']);
@@ -146,6 +154,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
 
             Route::get('patients/{patient}/summary', [ClinicalController::class, 'summary'])->middleware('patient.access');
             Route::get('patients/{patient}/chart', [ClinicalController::class, 'chart'])->middleware('patient.access');
+            Route::patch('patients/{patient}/flag', [ClinicalController::class, 'updateFlag'])->middleware('patient.access');
             Route::post('patients/{patient}/notes', [ClinicalController::class, 'storeNote'])->middleware('patient.access');
             Route::post('patients/{patient}/notes/{note}/sign', [ClinicalController::class, 'signNote'])->middleware('patient.access');
             Route::post('patients/{patient}/diagnoses', [ClinicalController::class, 'storeDiagnosis'])->middleware('patient.access');

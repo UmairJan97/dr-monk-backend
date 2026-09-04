@@ -18,6 +18,7 @@ use App\Services\Ai\CodingSuggestService;
 use App\Services\Ai\PatientSummaryService;
 use App\Services\Integrations\SurescriptsService;
 use App\Support\ApiResponse;
+use App\Support\PhiGate;
 use App\Support\Roles;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -42,7 +43,7 @@ class ClinicalController extends Controller
             ->where('clinic_id', $clinicId)
             ->whereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed'])
             ->whereDate('starts_at', today())
-            ->with(['patient:id,first_name,last_name,mrn,date_of_birth', 'provider:id,name'])
+            ->with(['patient:id,first_name,last_name,mrn,date_of_birth,flag_color,is_sick', 'provider:id,name'])
             ->orderBy('starts_at')
             ->get();
 
@@ -53,7 +54,7 @@ class ClinicalController extends Controller
                 $q->whereDate('starts_at', today())
                     ->orWhereDate('updated_at', today());
             })
-            ->with(['patient:id,first_name,last_name,mrn,date_of_birth', 'provider:id,name'])
+            ->with(['patient:id,first_name,last_name,mrn,date_of_birth,flag_color,is_sick', 'provider:id,name'])
             ->orderByDesc('updated_at')
             ->limit(30)
             ->get();
@@ -186,25 +187,67 @@ class ClinicalController extends Controller
             ->where('clinic_id', $request->user()->clinic_id)
             ->where('provider_id', $request->user()->id)
             ->whereBetween('starts_at', [$from, $to])
-            ->with(['patient:id,first_name,last_name,mrn', 'provider:id,name'])
+            ->with(['patient:id,first_name,last_name,mrn,flag_color,is_sick', 'provider:id,name'])
             ->orderBy('starts_at')
             ->get();
 
         return ApiResponse::success(['from' => $from->toIso8601String(), 'to' => $to->toIso8601String(), 'items' => $items]);
     }
 
+    public function updateFlag(Request $request, Patient $patient): JsonResponse
+    {
+        abort_unless($patient->clinic_id === $request->user()->clinic_id, 403);
+
+        $data = $request->validate([
+            'flag_color' => ['nullable', 'string', Rule::in(['green', 'yellow', 'cyan', 'purple', 'magenta'])],
+            'is_sick' => ['sometimes', 'boolean'],
+        ]);
+
+        $updates = [];
+        if (array_key_exists('flag_color', $data)) {
+            $updates['flag_color'] = $data['flag_color'];
+        }
+        if (array_key_exists('is_sick', $data)) {
+            $updates['is_sick'] = (bool) $data['is_sick'];
+        }
+
+        if ($updates !== []) {
+            $patient->update($updates);
+        }
+
+        return ApiResponse::success([
+            'id' => $patient->id,
+            'flag_color' => $patient->flag_color,
+            'is_sick' => (bool) $patient->is_sick,
+        ], 'Patient flag updated');
+    }
+
     public function chart(Request $request, Patient $patient): JsonResponse
     {
-        $patient->load(['primaryProvider:id,name']);
+        $patient->load(['primaryProvider:id,name', 'insurances']);
+        $demo = PhiGate::demographicsPayload($patient);
 
         return ApiResponse::success([
             'patient' => array_merge(
                 $patient->only([
                     'id', 'mrn', 'first_name', 'last_name', 'date_of_birth', 'gender', 'phone', 'email',
                     'address', 'allergies', 'active_medications', 'emergency_contact', 'primary_provider_id',
+                    'flag_color', 'is_sick',
                 ]),
-                ['primary_provider' => $patient->primaryProvider]
+                [
+                    'primary_provider' => $patient->primaryProvider,
+                    'date_of_birth' => $patient->date_of_birth instanceof \DateTimeInterface
+                        ? $patient->date_of_birth->format('Y-m-d')
+                        : $patient->date_of_birth,
+                    'is_sick' => (bool) $patient->is_sick,
+                ]
             ),
+            'insurances' => array_values(array_filter([
+                $demo['insurance'] ?? null,
+                $demo['secondary_insurance'] ?? null,
+            ])),
+            'insurance' => $demo['insurance'] ?? null,
+            'secondary_insurance' => $demo['secondary_insurance'] ?? null,
             'vitals' => Vital::query()
                 ->where('patient_id', $patient->id)
                 ->latest()

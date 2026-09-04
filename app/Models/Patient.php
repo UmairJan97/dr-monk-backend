@@ -16,6 +16,7 @@ class Patient extends Model
         'clinic_id', 'mrn', 'first_name', 'last_name', 'date_of_birth', 'gender',
         'phone', 'email', 'address', 'photo_path', 'primary_provider_id',
         'emergency_contact', 'allergies', 'active_medications',
+        'flag_color', 'is_sick',
     ];
 
     protected function casts(): array
@@ -23,6 +24,7 @@ class Patient extends Model
         return [
             'date_of_birth' => 'date',
             'emergency_contact' => 'array',
+            'is_sick' => 'boolean',
         ];
     }
 

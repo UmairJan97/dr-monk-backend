@@ -108,6 +108,9 @@ jobs:
 
           if php artisan migrate:status >/dev/null 2>&1; then
             php artisan migrate --force
+            # Idempotent demo chat + role data for staging/live testing
+            php artisan db:seed --class=ChatDemoSeeder --force || true
+            php artisan db:seed --class=FifteenDayScheduleSeeder --force || true
             php artisan config:cache
             php artisan route:cache
           else
