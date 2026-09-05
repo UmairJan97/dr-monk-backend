@@ -199,7 +199,7 @@ class ClinicalController extends Controller
         abort_unless($patient->clinic_id === $request->user()->clinic_id, 403);
 
         $data = $request->validate([
-            'flag_color' => ['nullable', 'string', Rule::in(['green', 'yellow', 'cyan', 'purple', 'magenta'])],
+            'flag_color' => ['nullable', 'string', Rule::in(['green', 'yellow', 'cyan', 'purple', 'magenta', 'red'])],
             'is_sick' => ['sometimes', 'boolean'],
         ]);
 
@@ -226,8 +226,9 @@ class ClinicalController extends Controller
     {
         $patient->load(['primaryProvider:id,name', 'insurances']);
         $demo = PhiGate::demographicsPayload($patient);
+        $hideRx = $request->user()->hasAnyRole(Roles::demographicsOnly());
 
-        return ApiResponse::success([
+        $payload = [
             'patient' => array_merge(
                 $patient->only([
                     'id', 'mrn', 'first_name', 'last_name', 'date_of_birth', 'gender', 'phone', 'email',
@@ -267,6 +268,7 @@ class ClinicalController extends Controller
                         'pulse' => $v->pulse,
                         'respiratory_rate' => $v->respiratory_rate,
                         'spo2' => $v->spo2,
+                        'oxygen_flow' => $v->oxygen_flow,
                         'pain_scale' => $v->pain_scale,
                         'glucose' => $v->glucose,
                         'notes' => $v->notes,
@@ -288,6 +290,24 @@ class ClinicalController extends Controller
             'lab_orders' => LabOrder::query()->where('patient_id', $patient->id)->latest()->limit(20)->get(),
             'treatment_plans' => TreatmentPlan::query()->where('patient_id', $patient->id)->latest()->limit(10)->get(),
             'follow_ups' => FollowUp::query()->where('patient_id', $patient->id)->latest()->limit(10)->get(),
+            'appointments' => Appointment::query()
+                ->where('clinic_id', $patient->clinic_id)
+                ->where('patient_id', $patient->id)
+                ->with('provider:id,name')
+                ->orderByDesc('starts_at')
+                ->limit(20)
+                ->get()
+                ->map(fn (Appointment $a) => [
+                    'id' => $a->id,
+                    'starts_at' => optional($a->starts_at)?->toIso8601String(),
+                    'ends_at' => optional($a->ends_at)?->toIso8601String(),
+                    'status' => $a->status,
+                    'visit_type' => $a->visit_type,
+                    'room' => $a->room,
+                    'provider' => $a->provider
+                        ? ['id' => $a->provider->id, 'name' => $a->provider->name]
+                        : null,
+                ]),
             'documents' => Document::query()->where('patient_id', $patient->id)->latest()->limit(20)->get(['id', 'title', 'doc_type', 'mime_type', 'created_at']),
             'billing_suggestions' => BillingCode::query()
                 ->where('patient_id', $patient->id)
@@ -295,7 +315,19 @@ class ClinicalController extends Controller
                 ->latest()
                 ->limit(10)
                 ->get(),
-        ]);
+        ];
+
+        if ($hideRx) {
+            $payload['prescriptions'] = [];
+            $payload['diagnoses'] = [];
+            $payload['treatment_plans'] = [];
+            $payload['billing_suggestions'] = [];
+            $payload['follow_ups'] = [];
+            $payload['patient']['allergies'] = null;
+            $payload['patient']['active_medications'] = null;
+        }
+
+        return ApiResponse::success($payload);
     }
 
     public function summary(Request $request, Patient $patient): JsonResponse

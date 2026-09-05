@@ -45,8 +45,9 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::post('auth/wake', [AuthController::class, 'wake'])->middleware('throttle:10,1');
 
         Route::post('files', [FileController::class, 'upload'])
-            ->middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::COUNSELOR.','.Roles::BILLING);
+            ->middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::COUNSELOR.','.Roles::THERAPIST.','.Roles::BILLING);
         Route::post('files/{document}/signed-url', [FileController::class, 'signedUrl']);
+        Route::get('files/{document}/view', [FileController::class, 'view']);
         Route::get('files/{document}/download', [FileController::class, 'download'])
             ->name('api.v1.files.download')
             ->middleware('signed');
@@ -58,6 +59,8 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::get('chat/inbox', [ChatController::class, 'inbox']);
         Route::get('chat/contacts', [ChatController::class, 'contacts']);
         Route::get('chat/thread/{peer}', [ChatController::class, 'thread']);
+        Route::post('chat/heartbeat', [ChatController::class, 'heartbeat'])->middleware('throttle:120,1');
+        Route::post('chat/away', [ChatController::class, 'away'])->middleware('throttle:120,1');
         Route::post('chat/messages', [ChatController::class, 'send'])->middleware('throttle:60,1');
         Route::post('chat/messages/read-all', [ChatController::class, 'markAllRead']);
         Route::post('chat/messages/{message}/read', [ChatController::class, 'markRead']);
@@ -82,10 +85,11 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             Route::post('clinics/{clinic}/stripe-sandbox', [SaaSController::class, 'attachStripeSandbox']);
         });
 
-        Route::middleware('role:'.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::FRONT_DESK.','.Roles::COUNSELOR.','.Roles::BILLING)
+        Route::middleware('role:'.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::FRONT_DESK.','.Roles::COUNSELOR.','.Roles::THERAPIST.','.Roles::BILLING)
             ->group(function () {
                 Route::get('patients', [PatientController::class, 'index']);
                 Route::get('patients/{patient}', [PatientController::class, 'show'])->middleware('patient.access');
+                Route::get('patients/{patient}/appointments', [PatientController::class, 'appointments'])->middleware('patient.access');
             });
 
         Route::post('patients', [PatientController::class, 'store'])
@@ -95,7 +99,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             ->middleware(['role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN, 'patient.access']);
 
         // Doctor/NP can list/create appointments + load providers (same booking as desk)
-        Route::middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP)
+        Route::middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::COUNSELOR.','.Roles::THERAPIST)
             ->prefix('front-desk')
             ->group(function () {
                 Route::get('appointments', [FrontDeskController::class, 'appointments']);
@@ -134,9 +138,18 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             Route::get('patients/{patient}/overview', [VitalNurseController::class, 'patientOverview'])->middleware('patient.access');
             Route::get('patients/{patient}/history', [VitalNurseController::class, 'history'])->middleware('patient.access');
             Route::post('/', [VitalNurseController::class, 'storeVitals']);
+            Route::patch('records/{vital}', [VitalNurseController::class, 'updateVitals']);
             Route::post('appointments/{appointment}/start', [VitalNurseController::class, 'startVitals']);
             Route::post('appointments/{appointment}/complete', [VitalNurseController::class, 'completeVitals']);
         });
+
+        Route::middleware('role:'.Roles::DOCTOR.','.Roles::NP.','.Roles::FRONT_DESK.','.Roles::VITAL_NURSE.','.Roles::COUNSELOR.','.Roles::THERAPIST)
+            ->prefix('clinical')
+            ->group(function () {
+                Route::get('patients/{patient}/chart', [ClinicalController::class, 'chart'])->middleware('patient.access');
+                Route::patch('patients/{patient}/flag', [ClinicalController::class, 'updateFlag'])->middleware('patient.access');
+                Route::post('patients/{patient}/notes', [ClinicalController::class, 'storeNote'])->middleware('patient.access');
+            });
 
         Route::middleware('role:'.Roles::DOCTOR.','.Roles::NP)->prefix('clinical')->group(function () {
             Route::get('dashboard', [ClinicalController::class, 'dashboard']);
@@ -153,9 +166,6 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             Route::post('billing-codes/{billingCode}/confirm', [ClinicalController::class, 'confirmBillingCode']);
 
             Route::get('patients/{patient}/summary', [ClinicalController::class, 'summary'])->middleware('patient.access');
-            Route::get('patients/{patient}/chart', [ClinicalController::class, 'chart'])->middleware('patient.access');
-            Route::patch('patients/{patient}/flag', [ClinicalController::class, 'updateFlag'])->middleware('patient.access');
-            Route::post('patients/{patient}/notes', [ClinicalController::class, 'storeNote'])->middleware('patient.access');
             Route::post('patients/{patient}/notes/{note}/sign', [ClinicalController::class, 'signNote'])->middleware('patient.access');
             Route::post('patients/{patient}/diagnoses', [ClinicalController::class, 'storeDiagnosis'])->middleware('patient.access');
             Route::post('patients/{patient}/prescriptions', [ClinicalController::class, 'storePrescription'])->middleware('patient.access');
@@ -164,7 +174,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             Route::post('patients/{patient}/follow-ups', [ClinicalController::class, 'storeFollowUp'])->middleware('patient.access');
         });
 
-        Route::middleware('role:'.Roles::COUNSELOR)->prefix('counselor')->group(function () {
+        Route::middleware('role:'.Roles::COUNSELOR.','.Roles::THERAPIST)->prefix('counselor')->group(function () {
             Route::get('dashboard', [CounselorController::class, 'dashboard']);
             Route::get('schedule', [CounselorController::class, 'schedule']);
             Route::post('appointments/{appointment}/complete', [CounselorController::class, 'completeSession']);
@@ -193,7 +203,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         });
 
         Route::post('ai/monk', [AiController::class, 'command'])
-            ->middleware('role:'.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::FRONT_DESK.','.Roles::COUNSELOR.','.Roles::CLINIC_ADMIN);
+            ->middleware('role:'.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::FRONT_DESK.','.Roles::COUNSELOR.','.Roles::THERAPIST.','.Roles::CLINIC_ADMIN);
 
         Route::middleware('role:'.Roles::CLINIC_ADMIN)->prefix('admin')->group(function () {
             Route::get('dashboard', [AdminController::class, 'dashboard']);

@@ -96,7 +96,7 @@ class HelloMonkService
             ];
         }
 
-        if ($user->hasRole(Roles::COUNSELOR) && Str::contains($t, ['session', 'therapy', 'counsel'])) {
+        if ($user->hasAnyRole([Roles::COUNSELOR, Roles::THERAPIST]) && Str::contains($t, ['session', 'therapy', 'counsel'])) {
             return [
                 'name' => 'start_counseling_session',
                 'message' => 'Opening counseling session notes.',
@@ -104,7 +104,7 @@ class HelloMonkService
             ];
         }
 
-        if ($user->hasRole(Roles::COUNSELOR) && Str::contains($t, ['phq', 'gad', 'pcl', 'assessment'])) {
+        if ($user->hasAnyRole([Roles::COUNSELOR, Roles::THERAPIST]) && Str::contains($t, ['phq', 'gad', 'pcl', 'assessment'])) {
             return [
                 'name' => 'run_assessment',
                 'message' => 'Opening PHQ-9 / GAD-7 / PCL-5 assessment.',

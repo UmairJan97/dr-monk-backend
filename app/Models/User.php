@@ -92,7 +92,7 @@ class User extends Authenticatable
             return false;
         }
 
-        if ($this->hasAnyRole([Roles::CLINIC_ADMIN, Roles::FRONT_DESK, Roles::BILLING, Roles::VITAL_NURSE, Roles::COUNSELOR])) {
+        if ($this->hasAnyRole([Roles::CLINIC_ADMIN, Roles::FRONT_DESK, Roles::BILLING, Roles::VITAL_NURSE, Roles::COUNSELOR, Roles::THERAPIST])) {
             return true;
         }
 

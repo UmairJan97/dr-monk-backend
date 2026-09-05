@@ -117,6 +117,38 @@ class FileController extends Controller
         ]);
     }
 
+    public function view(Request $request, Document $document): StreamedResponse|Response|JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user && $user->clinic_id === $document->clinic_id, 403);
+
+        if ($document->patient_id) {
+            $patient = Patient::query()->findOrFail($document->patient_id);
+            abort_unless($user->canAccessPatient($patient), 403, 'PHI access denied for this patient.');
+        }
+
+        $plain = $this->files->decryptContents($document);
+        $mime = $document->mime_type ?: 'application/octet-stream';
+        $filename = str_replace(['"', "\r", "\n"], '', $document->title ?: 'document');
+
+        $this->audit->log(
+            'file.view',
+            'allowed',
+            $user,
+            $request,
+            $document->patient_id,
+            Document::class,
+            $document->id
+        );
+
+        return response($plain, 200, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'no-store, private',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function download(Request $request, Document $document): StreamedResponse|Response|JsonResponse
     {
         if (! URL::hasValidSignature($request)) {

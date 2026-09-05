@@ -17,6 +17,7 @@ use App\Support\Roles;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -109,6 +110,7 @@ class AuthController extends Controller
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
+        $this->clearChatPresence($user);
         $token = $user?->currentAccessToken();
 
         if ($token && method_exists($token, 'delete')) {
@@ -123,6 +125,7 @@ class AuthController extends Controller
     public function logoutAll(Request $request): JsonResponse
     {
         $user = $request->user();
+        $this->clearChatPresence($user);
         $user?->tokens()->delete();
         $this->audit->log('auth.logout_all', 'allowed', $user, $request);
 
@@ -371,5 +374,15 @@ class AuthController extends Controller
             'license_state' => $user->license_state,
             'is_active' => (bool) $user->is_active,
         ];
+    }
+
+    private function clearChatPresence(?User $user): void
+    {
+        if (! $user) {
+            return;
+        }
+
+        $user->forceFill(['last_activity_at' => now()])->saveQuietly();
+        Cache::forget('chat-online:'.(int) $user->id);
     }
 }

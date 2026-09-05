@@ -71,6 +71,7 @@ class DatabaseSeeder extends Seeder
             ['email' => 'vitals@demo.local', 'name' => 'Vital Nurse', 'role' => Roles::VITAL_NURSE, 'can_prescribe' => false],
             ['email' => 'desk@demo.local', 'name' => 'Front Desk', 'role' => Roles::FRONT_DESK, 'can_prescribe' => false],
             ['email' => 'counselor@demo.local', 'name' => 'Counselor Sam', 'role' => Roles::COUNSELOR, 'can_prescribe' => false],
+            ['email' => 'therapist@demo.local', 'name' => 'Therapist Maya', 'role' => Roles::THERAPIST, 'can_prescribe' => false],
             ['email' => 'billing@demo.local', 'name' => 'Billing Lead', 'role' => Roles::BILLING, 'can_prescribe' => false],
         ];
 
@@ -100,6 +101,7 @@ class DatabaseSeeder extends Seeder
         $this->call(NpDemoSeeder::class);
         $this->call(DoctorDemoSeeder::class);
         $this->call(CounselorDemoSeeder::class);
+        $this->call(TherapistDemoSeeder::class);
         $this->call(BillingDemoSeeder::class);
         $this->call(AdminDemoSeeder::class);
         $this->call(SaasDemoSeeder::class);

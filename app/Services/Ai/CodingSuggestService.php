@@ -17,7 +17,7 @@ class CodingSuggestService
      */
     public function suggest(User $user, Patient $patient, ?string $text = null, ?int $durationMinutes = null): array
     {
-        $suggestions = $user->hasRole(Roles::COUNSELOR)
+        $suggestions = $user->hasAnyRole([Roles::COUNSELOR, Roles::THERAPIST])
             ? $this->therapySuggestions($text, $durationMinutes)
             : $this->officeVisitSuggestions($text);
 

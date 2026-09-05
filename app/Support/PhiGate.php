@@ -50,6 +50,8 @@ final class PhiGate
             'emergency_contact' => $patient->emergency_contact,
             'insurance' => self::safeInsurancePayload($primary, 'primary'),
             'secondary_insurance' => self::safeInsurancePayload($secondary, 'secondary'),
+            'flag_color' => $patient->flag_color,
+            'is_sick' => (bool) $patient->is_sick,
             'created_at' => optional($patient->created_at)?->toIso8601String(),
         ];
     }
@@ -77,6 +79,8 @@ final class PhiGate
                 'emergency_contact' => $patient->emergency_contact,
                 'insurance' => null,
                 'secondary_insurance' => null,
+                'flag_color' => $patient->flag_color ?? null,
+                'is_sick' => (bool) ($patient->is_sick ?? false),
                 'created_at' => optional($patient->created_at)?->toIso8601String(),
             ];
         }

@@ -132,9 +132,9 @@ class FrontDeskController extends Controller
         ]);
 
         $provider = User::query()->findOrFail($data['provider_id']);
-        if (! $provider->hasAnyRole([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR])) {
+        if (! $provider->hasAnyRole([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR, Roles::THERAPIST])) {
             throw ValidationException::withMessages([
-                'provider_id' => ['Provider must be a Doctor, NP, or Counselor.'],
+                'provider_id' => ['Provider must be a Doctor, NP, Counselor, or Therapist.'],
             ]);
         }
 
@@ -173,9 +173,9 @@ class FrontDeskController extends Controller
 
         if (isset($data['provider_id'])) {
             $provider = User::query()->findOrFail($data['provider_id']);
-            if (! $provider->hasAnyRole([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR])) {
+            if (! $provider->hasAnyRole([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR, Roles::THERAPIST])) {
                 throw ValidationException::withMessages([
-                    'provider_id' => ['Provider must be a Doctor, NP, or Counselor.'],
+                    'provider_id' => ['Provider must be a Doctor, NP, Counselor, or Therapist.'],
                 ]);
             }
         }
@@ -219,9 +219,9 @@ class FrontDeskController extends Controller
         ]);
 
         $provider = User::query()->findOrFail($data['provider_id']);
-        if (! $provider->hasAnyRole([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR])) {
+        if (! $provider->hasAnyRole([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR, Roles::THERAPIST])) {
             throw ValidationException::withMessages([
-                'provider_id' => ['Provider must be a Doctor, NP, or Counselor.'],
+                'provider_id' => ['Provider must be a Doctor, NP, Counselor, or Therapist.'],
             ]);
         }
 
@@ -550,7 +550,7 @@ class FrontDeskController extends Controller
         $providers = User::query()
             ->where('clinic_id', $request->user()->clinic_id)
             ->where('is_active', true)
-            ->role([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR])
+            ->role([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR, Roles::THERAPIST])
             ->orderBy('name')
             ->get(['id', 'name', 'email'])
             ->map(fn (User $u) => [

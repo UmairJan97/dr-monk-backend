@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Appointment;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
 use App\Services\AuditService;
@@ -198,6 +199,32 @@ class PatientController extends Controller
         }
 
         return ApiResponse::success(PhiGate::scrubForUser($request->user(), $patient));
+    }
+
+    public function appointments(Request $request, Patient $patient): JsonResponse
+    {
+        abort_unless($patient->clinic_id === $request->user()->clinic_id, 403);
+
+        $items = Appointment::query()
+            ->where('clinic_id', $patient->clinic_id)
+            ->where('patient_id', $patient->id)
+            ->with('provider:id,name')
+            ->orderByDesc('starts_at')
+            ->limit(30)
+            ->get()
+            ->map(fn (Appointment $a) => [
+                'id' => $a->id,
+                'starts_at' => optional($a->starts_at)?->toIso8601String(),
+                'ends_at' => optional($a->ends_at)?->toIso8601String(),
+                'status' => $a->status,
+                'visit_type' => $a->visit_type,
+                'room' => $a->room,
+                'provider' => $a->provider
+                    ? ['id' => $a->provider->id, 'name' => $a->provider->name]
+                    : null,
+            ]);
+
+        return ApiResponse::success(['items' => $items]);
     }
 
     public function update(Request $request, Patient $patient): JsonResponse

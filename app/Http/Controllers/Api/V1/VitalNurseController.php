@@ -244,6 +244,90 @@ class VitalNurseController extends Controller
         ], 'Vitals recorded');
     }
 
+    public function updateVitals(Request $request, Vital $vital): JsonResponse
+    {
+        abort_unless($vital->clinic_id === $request->user()->clinic_id, 403);
+        $patient = Patient::query()->findOrFail($vital->patient_id);
+        abort_unless($request->user()->canAccessPatient($patient), 403);
+
+        $data = $request->validate([
+            'height_in' => ['nullable', 'numeric', 'min:20', 'max:90'],
+            'weight_lb' => ['nullable', 'numeric', 'min:5', 'max:800'],
+            'temperature_f' => ['nullable', 'numeric', 'min:90', 'max:110'],
+            'height_cm' => ['nullable', 'numeric', 'min:30', 'max:300'],
+            'weight_kg' => ['nullable', 'numeric', 'min:1', 'max:500'],
+            'temperature_c' => ['nullable', 'numeric', 'min:30', 'max:45'],
+            'bp_systolic' => ['required', 'integer', 'min:50', 'max:300'],
+            'bp_diastolic' => ['required', 'integer', 'min:30', 'max:200'],
+            'pulse' => ['required', 'integer', 'min:30', 'max:220'],
+            'respiratory_rate' => ['nullable', 'integer', 'min:5', 'max:60'],
+            'spo2' => ['required', 'integer', 'min:70', 'max:100'],
+            'oxygen_flow' => ['nullable', 'numeric', 'min:0', 'max:15'],
+            'pain_scale' => ['nullable', 'integer', 'min:0', 'max:10'],
+            'glucose' => ['nullable', 'numeric', 'min:20', 'max:800'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        if ((int) $data['bp_systolic'] <= (int) $data['bp_diastolic']) {
+            throw ValidationException::withMessages([
+                'bp_systolic' => ['Systolic BP must be greater than diastolic.'],
+            ]);
+        }
+
+        $heightCm = array_key_exists('height_in', $data)
+            ? ($data['height_in'] !== null ? round((float) $data['height_in'] * 2.54, 2) : null)
+            : (array_key_exists('height_cm', $data)
+                ? ($data['height_cm'] !== null ? (float) $data['height_cm'] : null)
+                : $vital->height_cm);
+        $weightKg = array_key_exists('weight_lb', $data)
+            ? ($data['weight_lb'] !== null ? round((float) $data['weight_lb'] * 0.45359237, 2) : null)
+            : (array_key_exists('weight_kg', $data)
+                ? ($data['weight_kg'] !== null ? (float) $data['weight_kg'] : null)
+                : $vital->weight_kg);
+        $tempC = isset($data['temperature_f'])
+            ? round((((float) $data['temperature_f'] - 32) * 5 / 9), 2)
+            : (isset($data['temperature_c']) ? (float) $data['temperature_c'] : $vital->temperature_c);
+
+        if ($tempC === null) {
+            throw ValidationException::withMessages([
+                'temperature_f' => ['Temperature (°F) is required.'],
+            ]);
+        }
+
+        $metric = [
+            'height_cm' => $heightCm,
+            'weight_kg' => $weightKg,
+            'temperature_c' => $tempC,
+            'bp_systolic' => (int) $data['bp_systolic'],
+            'bp_diastolic' => (int) $data['bp_diastolic'],
+            'pulse' => (int) $data['pulse'],
+            'respiratory_rate' => isset($data['respiratory_rate']) ? (int) $data['respiratory_rate'] : null,
+            'spo2' => (int) $data['spo2'],
+            'oxygen_flow' => isset($data['oxygen_flow']) ? (float) $data['oxygen_flow'] : null,
+            'pain_scale' => isset($data['pain_scale']) ? (int) $data['pain_scale'] : null,
+            'glucose' => isset($data['glucose']) ? (float) $data['glucose'] : null,
+            'notes' => array_key_exists('notes', $data) ? (isset($data['notes']) ? trim((string) $data['notes']) : null) : $vital->notes,
+        ];
+
+        $bmi = Vital::calculateBmi($heightCm, $weightKg);
+        $alerts = Vital::detectAlerts([...$metric, 'bmi' => $bmi]);
+
+        $vital->update([
+            ...$metric,
+            'recorded_by' => $request->user()->id,
+            'bmi' => $bmi,
+            'alerts' => $alerts,
+        ]);
+        $vital->load('recorder:id,name');
+
+        return ApiResponse::success([
+            'vital' => $this->vitalPayload($vital),
+            'bmi' => $bmi,
+            'alerts' => $alerts,
+            'alert_labels' => Vital::alertLabels($alerts),
+        ], 'Vitals updated');
+    }
+
     public function completeVitals(Request $request, Appointment $appointment): JsonResponse
     {
         abort_unless($appointment->clinic_id === $request->user()->clinic_id, 403);

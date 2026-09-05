@@ -107,24 +107,57 @@ class CounselorController extends Controller
     public function storeSession(Request $request, Patient $patient): JsonResponse
     {
         $data = $request->validate([
-            'session_type' => ['nullable', 'string', 'in:individual,couples,family,group'],
+            'session_type' => ['nullable', 'string', 'max:120'],
             'modality' => ['nullable', 'string', 'in:in_person,telehealth'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:120'],
-            'notes' => ['required', 'string', 'min:10', 'max:20000'],
+            'notes' => ['nullable', 'string', 'max:20000'],
+            'subjective' => ['nullable', 'string', 'max:20000'],
+            'objective' => ['nullable', 'string', 'max:20000'],
+            'assessment' => ['nullable', 'string', 'max:20000'],
+            'plan' => ['nullable', 'string', 'max:20000'],
+            'techniques' => ['nullable', 'string', 'max:2000'],
+            'progress' => ['nullable', 'string', 'max:2000'],
+            'additional_notes' => ['nullable', 'string', 'max:20000'],
             'goals' => ['nullable', 'array'],
             'goals.*' => ['string', 'max:500'],
             'appointment_id' => ['nullable', 'exists:appointments,id'],
         ]);
 
-        $type = $data['session_type'] ?? 'individual';
-        $modality = $data['modality'] ?? 'in_person';
-        $minutes = $data['duration_minutes'] ?? 45;
-        // Persist modality/length in session_type (no dedicated columns yet).
-        $sessionLabel = sprintf('%s · %s · %dm', $type, $modality, $minutes);
+        $type = trim((string) ($data['session_type'] ?? ''));
+        $notes = trim((string) ($data['notes'] ?? ''));
+        if ($notes === '') {
+            $notes = trim(implode("\n\n", array_filter([
+                $type !== '' ? "Type: {$type}" : null,
+                ! empty($data['subjective']) ? "Subjective:\n".$data['subjective'] : null,
+                ! empty($data['objective']) ? "Objective:\n".$data['objective'] : null,
+                ! empty($data['assessment']) ? "Assessment:\n".$data['assessment'] : null,
+                ! empty($data['plan']) ? "Plan / Interventions:\n".$data['plan'] : null,
+                ! empty($data['techniques']) ? "Therapeutic techniques: ".$data['techniques'] : null,
+                ! empty($data['progress']) ? "Progress this session: ".$data['progress'] : null,
+                ! empty($data['additional_notes']) ? "Additional notes:\n".$data['additional_notes'] : null,
+            ])));
+        }
+        if (strlen($notes) < 10) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'notes' => ['Evaluation notes are required.'],
+            ]);
+        }
+
+        $legacyTypes = ['individual', 'couples', 'family', 'group'];
+        if (in_array($type, $legacyTypes, true) && ! empty($data['modality'])) {
+            $sessionLabel = sprintf(
+                '%s · %s · %dm',
+                $type,
+                $data['modality'],
+                $data['duration_minutes'] ?? 45
+            );
+        } else {
+            $sessionLabel = $type !== '' ? $type : 'evaluation';
+        }
 
         $session = CounselingSession::create([
             'session_type' => $sessionLabel,
-            'notes' => $data['notes'],
+            'notes' => $notes,
             'goals' => $data['goals'] ?? [],
             'appointment_id' => $data['appointment_id'] ?? null,
             'clinic_id' => $patient->clinic_id,
@@ -135,7 +168,7 @@ class CounselorController extends Controller
         $suggestions = $this->coding->suggest(
             $request->user(),
             $patient,
-            $data['notes'] ?? null,
+            $notes,
             $data['duration_minutes'] ?? null
         );
 

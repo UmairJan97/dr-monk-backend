@@ -18,6 +18,8 @@ final class Roles
 
     public const COUNSELOR = 'counselor';
 
+    public const THERAPIST = 'therapist';
+
     public const BILLING = 'billing';
 
     public static function all(): array
@@ -30,6 +32,7 @@ final class Roles
             self::VITAL_NURSE,
             self::FRONT_DESK,
             self::COUNSELOR,
+            self::THERAPIST,
             self::BILLING,
         ];
     }
@@ -44,6 +47,7 @@ final class Roles
             self::VITAL_NURSE,
             self::FRONT_DESK,
             self::COUNSELOR,
+            self::THERAPIST,
             self::BILLING,
         ];
     }

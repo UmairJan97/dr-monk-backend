@@ -94,6 +94,11 @@ final class Permissions
                 self::CLINICAL_READ,
                 self::COUNSELOR_WRITE,
             ],
+            Roles::THERAPIST => [
+                self::PATIENTS_VIEW,
+                self::CLINICAL_READ,
+                self::COUNSELOR_WRITE,
+            ],
             Roles::BILLING => [
                 self::PATIENTS_VIEW,
                 self::CLINICAL_READ,

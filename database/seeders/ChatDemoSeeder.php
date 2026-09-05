@@ -29,6 +29,7 @@ class ChatDemoSeeder extends Seeder
             Roles::VITAL_NURSE => 'vitals@demo.local',
             Roles::FRONT_DESK => 'desk@demo.local',
             Roles::COUNSELOR => 'counselor@demo.local',
+            Roles::THERAPIST => 'therapist@demo.local',
             Roles::BILLING => 'billing@demo.local',
         ];
 
@@ -88,11 +89,7 @@ class ChatDemoSeeder extends Seeder
                         'clinic_id' => $clinic->id,
                         'from_user_id' => $sender->id,
                         'to_user_id' => $recipient->id,
-                        'body' => sprintf(
-                            '[%s] %s',
-                            strtoupper(str_replace('_', ' ', $role)),
-                            $snippets[($day * 10 + $i) % count($snippets)]
-                        ),
+                        'body' => $snippets[($day * 10 + $i) % count($snippets)],
                         'read_at' => $i % 3 === 0 ? $createdAt->copy()->addMinutes(12)->toDateTimeString() : null,
                         'created_at' => $createdStr,
                         'updated_at' => $createdStr,
