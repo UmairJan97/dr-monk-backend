@@ -137,6 +137,30 @@ class ChatController extends Controller
         return ApiResponse::success(['items' => $items]);
     }
 
+    public function directory(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $items = User::query()
+            ->where('clinic_id', $user->clinic_id)
+            ->where('id', '!=', $user->id)
+            ->where('is_active', true)
+            ->with('roles')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'last_activity_at'])
+            ->map(fn (User $peer) => [
+                'id' => $peer->id,
+                'name' => $peer->name,
+                'email' => $peer->email,
+                'roles' => $peer->getRoleNames()->values()->all(),
+                'presence' => $this->presenceOf((int) $peer->id),
+                'last_seen_at' => optional($peer->last_activity_at)?->toIso8601String(),
+            ])
+            ->values();
+
+        return ApiResponse::success(['items' => $items]);
+    }
+
     public function thread(Request $request, User $peer): JsonResponse
     {
         $user = $request->user();

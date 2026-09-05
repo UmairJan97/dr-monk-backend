@@ -60,6 +60,21 @@ class ChatNotificationsTest extends TestCase
             ->assertJsonPath('data.items.0.last_message.body', 'Vitals ready');
     }
 
+    public function test_directory_lists_clinic_staff_without_message_history(): void
+    {
+        [$doctor, $nurse, $billing] = $this->staff();
+        Sanctum::actingAs($doctor);
+
+        $this->getJson('/api/v1/chat/directory')
+            ->assertOk()
+            ->assertJsonCount(2, 'data.items');
+
+        $ids = collect($this->getJson('/api/v1/chat/directory')->json('data.items'))->pluck('id');
+        $this->assertTrue($ids->contains($nurse->id));
+        $this->assertTrue($ids->contains($billing->id));
+        $this->assertFalse($ids->contains($doctor->id));
+    }
+
     public function test_heartbeat_marks_user_online_and_returns_separate_unreads(): void
     {
         [$doctor, $nurse] = $this->staff();

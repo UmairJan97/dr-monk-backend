@@ -58,6 +58,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
 
         Route::get('chat/inbox', [ChatController::class, 'inbox']);
         Route::get('chat/contacts', [ChatController::class, 'contacts']);
+        Route::get('chat/directory', [ChatController::class, 'directory']);
         Route::get('chat/thread/{peer}', [ChatController::class, 'thread']);
         Route::post('chat/heartbeat', [ChatController::class, 'heartbeat'])->middleware('throttle:120,1');
         Route::post('chat/away', [ChatController::class, 'away'])->middleware('throttle:120,1');
