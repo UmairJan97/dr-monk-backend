@@ -278,7 +278,7 @@ return new class extends Migration
             $table->foreignId('clinic_id')->constrained()->cascadeOnDelete();
             $table->foreignId('patient_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('recorded_by')->constrained('users')->cascadeOnDelete();
-            $table->string('method'); // cash|card|online|stripe
+            $table->string('method'); // cash|card|online|stripe|copay
             $table->decimal('amount', 12, 2);
             $table->string('stripe_payment_intent_id')->nullable();
             $table->string('receipt_number')->nullable();

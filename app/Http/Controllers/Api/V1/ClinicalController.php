@@ -41,7 +41,7 @@ class ClinicalController extends Controller
         // NP + Doctor share one clinic-wide post-vitals ready queue.
         $queue = Appointment::query()
             ->where('clinic_id', $clinicId)
-            ->whereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed'])
+            ->whereIn('status', ['ready_for_provider', 'in_progress'])
             ->whereDate('starts_at', today())
             ->with(['patient:id,first_name,last_name,mrn,date_of_birth,flag_color,is_sick', 'provider:id,name'])
             ->orderBy('starts_at')

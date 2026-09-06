@@ -32,7 +32,7 @@ class CounselorController extends Controller
         return ApiResponse::success([
             'stats' => [
                 'todays_sessions' => (clone $today)->count(),
-                'waiting' => (clone $today)->whereIn('status', ['waiting', 'ready_for_provider', 'vitals_completed'])->count(),
+                'waiting' => (clone $today)->whereIn('status', ['waiting', 'ready_for_provider', 'in_progress'])->count(),
                 'open_goals' => CounselingSession::query()
                     ->where('counselor_id', $user->id)
                     ->whereNotNull('goals')
@@ -43,7 +43,7 @@ class CounselorController extends Controller
                     ->count(),
             ],
             'queue' => (clone $today)
-                ->whereNotIn('status', ['completed', 'cancelled', 'no_show'])
+                ->whereIn('status', ['waiting', 'ready_for_provider', 'in_progress'])
                 ->with(['patient:id,first_name,last_name,mrn'])
                 ->orderBy('starts_at')
                 ->limit(20)

@@ -118,7 +118,7 @@ class User extends Authenticatable
                 ->where('patient_id', $patient->id)
                 ->where(function ($q) {
                     $q->where('provider_id', $this->id)
-                        ->orWhereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed']);
+                        ->orWhereIn('status', ['ready_for_provider', 'in_progress']);
                 })
                 ->exists();
         }

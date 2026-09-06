@@ -69,7 +69,7 @@ class FrontDeskController extends Controller
         $items = Appointment::query()
             ->where('clinic_id', $request->user()->clinic_id)
             ->whereDate('starts_at', today())
-            ->whereIn('status', ['scheduled', 'waiting', 'checked_in', 'arrived'])
+            ->whereIn('status', ['scheduled'])
             ->with([
                 'patient:id,first_name,last_name,mrn,date_of_birth,gender,phone,email,photo_path',
                 'provider:id,name',
@@ -380,7 +380,7 @@ class FrontDeskController extends Controller
                 Rule::exists('patients', 'id')->where('clinic_id', $clinicId),
             ],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:99999.99'],
-            'method' => ['required', 'in:cash,card,online,stripe'],
+            'method' => ['required', 'in:cash,card,online,stripe,copay'],
             'stripe_payment_intent_id' => ['nullable', 'string', 'max:120'],
         ]);
 

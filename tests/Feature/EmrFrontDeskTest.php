@@ -117,6 +117,11 @@ class EmrFrontDeskTest extends TestCase
         $this->assertNotEmpty($checkedIn->json('data.checked_in_at'));
         $this->assertNotNull(Appointment::query()->find($appointmentId)?->checked_in_at);
 
+        // After check-in, patient leaves Front Desk today's queue and moves to vitals.
+        $this->getJson('/api/v1/front-desk/queue')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.items');
+
         $payment = $this->postJson('/api/v1/front-desk/payments', [
             'appointment_id' => $appointmentId,
             'patient_id' => $patient->id,
