@@ -144,6 +144,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             Route::get('queue', [VitalNurseController::class, 'queue']);
             Route::get('patients/{patient}/overview', [VitalNurseController::class, 'patientOverview'])->middleware('patient.access');
             Route::get('patients/{patient}/history', [VitalNurseController::class, 'history'])->middleware('patient.access');
+            Route::get('latest-vitals', [ClinicalController::class, 'latestVitals']);
             Route::post('/', [VitalNurseController::class, 'storeVitals']);
             Route::patch('records/{vital}', [VitalNurseController::class, 'updateVitals']);
             Route::post('appointments/{appointment}/start', [VitalNurseController::class, 'startVitals']);

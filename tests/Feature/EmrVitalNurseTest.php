@@ -127,6 +127,40 @@ class EmrVitalNurseTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_vital_nurse_can_list_latest_vitals_and_all_clinic_patients(): void
+    {
+        [$clinic, $nurse, , $patient] = $this->world();
+        Sanctum::actingAs($nurse);
+
+        $other = Patient::create([
+            'clinic_id' => $clinic->id,
+            'mrn' => 'MRN-V2',
+            'first_name' => 'No',
+            'last_name' => 'VitalsYet',
+            'date_of_birth' => '1988-06-15',
+        ]);
+
+        $this->postJson('/api/v1/vitals', [
+            'patient_id' => $patient->id,
+            'height_in' => 67,
+            'weight_lb' => 150,
+            'bp_systolic' => 120,
+            'bp_diastolic' => 80,
+            'temperature_f' => 98.6,
+            'pulse' => 72,
+            'spo2' => 98,
+        ])->assertCreated();
+
+        $this->getJson('/api/v1/vitals/latest-vitals')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.patient_id', $patient->id);
+
+        $ids = collect($this->getJson('/api/v1/patients?per_page=50')->assertOk()->json('data.data'))
+            ->pluck('id');
+        $this->assertContains($patient->id, $ids);
+        $this->assertContains($other->id, $ids);
+    }
+
     /**
      * @return array{0: Clinic, 1: User, 2: User, 3: Patient, 4: Appointment}
      */
