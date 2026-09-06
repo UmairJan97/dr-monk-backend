@@ -57,6 +57,12 @@ final class Roles
         return [self::DOCTOR, self::NP];
     }
 
+    /** Roles selectable when booking / assigning a visit provider. */
+    public static function schedulableProviders(): array
+    {
+        return [self::DOCTOR, self::NP, self::COUNSELOR, self::THERAPIST];
+    }
+
     /** Roles that must never receive clinical PHI fields. */
     public static function demographicsOnly(): array
     {

@@ -550,10 +550,13 @@ class FrontDeskController extends Controller
 
     public function providers(Request $request): JsonResponse
     {
+        // Use whereHas(name) instead of ->role([...]): Spatie findByName throws
+        // RoleDoesNotExist if any listed role is missing from the DB (common after
+        // deploying counselor/therapist without re-seeding roles).
         $providers = User::query()
             ->where('clinic_id', $request->user()->clinic_id)
             ->where('is_active', true)
-            ->role([Roles::DOCTOR, Roles::NP, Roles::COUNSELOR, Roles::THERAPIST])
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', Roles::schedulableProviders()))
             ->orderBy('name')
             ->get(['id', 'name', 'email'])
             ->map(fn (User $u) => [
