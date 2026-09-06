@@ -102,6 +102,7 @@ class DatabaseSeeder extends Seeder
         $this->call(VitalNurseDemoSeeder::class);
         // NP before Doctor in demo queues (Vital → NP → Doctor)
         $this->call(NpDemoSeeder::class);
+        $this->call(NpPreviousHealthSeeder::class);
         $this->call(DoctorDemoSeeder::class);
         $this->call(CounselorDemoSeeder::class);
         $this->call(TherapistDemoSeeder::class);
