@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\Roles;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -14,11 +15,12 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     protected $fillable = [
         'clinic_id',
+        'clinic_acl_role_id',
         'name',
         'email',
         'phone',
@@ -58,6 +60,11 @@ class User extends Authenticatable
     public function clinic(): BelongsTo
     {
         return $this->belongsTo(Clinic::class);
+    }
+
+    public function clinicAclRole(): BelongsTo
+    {
+        return $this->belongsTo(ClinicAclRole::class, 'clinic_acl_role_id');
     }
 
     public function assignedPatients(): BelongsToMany

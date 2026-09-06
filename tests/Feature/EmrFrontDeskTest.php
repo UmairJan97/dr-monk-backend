@@ -107,12 +107,15 @@ class EmrFrontDeskTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.items.0.id', $appointmentId);
 
-        $this->postJson('/api/v1/front-desk/appointments/'.$appointmentId.'/check-in')
+        $checkedIn = $this->postJson('/api/v1/front-desk/appointments/'.$appointmentId.'/check-in')
             ->assertOk()
             ->assertJsonPath('data.status', 'waiting')
             ->assertJsonPath('data.can_check_in', false)
             ->assertJsonPath('data.can_no_show', false)
             ->assertJsonPath('data.can_cancel', false);
+
+        $this->assertNotEmpty($checkedIn->json('data.checked_in_at'));
+        $this->assertNotNull(Appointment::query()->find($appointmentId)?->checked_in_at);
 
         $payment = $this->postJson('/api/v1/front-desk/payments', [
             'appointment_id' => $appointmentId,
@@ -447,6 +450,46 @@ class EmrFrontDeskTest extends TestCase
             ->assertJsonPath('data.sent', 1);
     }
 
+    public function test_appointments_include_patient_email_and_gender(): void
+    {
+        [, $desk, $doctor, $patient] = $this->world();
+        Sanctum::actingAs($desk);
+
+        $this->postJson('/api/v1/front-desk/appointments', [
+            'patient_id' => $patient->id,
+            'provider_id' => $doctor->id,
+            'starts_at' => now()->setTime(11, 0)->toIso8601String(),
+            'ends_at' => now()->setTime(11, 30)->toIso8601String(),
+            'visit_type' => 'Office visit',
+        ])->assertCreated();
+
+        $day = now()->toDateString();
+        $this->getJson("/api/v1/front-desk/appointments?from={$day}&to={$day}")
+            ->assertOk()
+            ->assertJsonPath('data.items.0.patient.email', 'jamie@example.com')
+            ->assertJsonPath('data.items.0.patient.gender', 'Female')
+            ->assertJsonPath('data.items.0.patient.phone', '(212) 555-0144');
+    }
+
+    public function test_patient_index_search_matches_email_gender_and_age(): void
+    {
+        [, $desk, , $patient] = $this->world();
+        Sanctum::actingAs($desk);
+
+        $this->getJson('/api/v1/patients?q=jamie@example.com')
+            ->assertOk()
+            ->assertJsonPath('data.data.0.id', $patient->id);
+
+        $this->getJson('/api/v1/patients?q=Female')
+            ->assertOk()
+            ->assertJsonPath('data.data.0.id', $patient->id);
+
+        $age = (int) $patient->date_of_birth->age;
+        $this->getJson('/api/v1/patients?q='.$age)
+            ->assertOk()
+            ->assertJsonPath('data.data.0.id', $patient->id);
+    }
+
     /**
      * @return array{0: Clinic, 1: User, 2: User, 3: Patient}
      */
@@ -492,6 +535,7 @@ class EmrFrontDeskTest extends TestCase
             'first_name' => 'Jamie',
             'last_name' => 'Lee',
             'date_of_birth' => '1988-02-02',
+            'gender' => 'Female',
             'phone' => '(212) 555-0144',
             'email' => 'jamie@example.com',
             'primary_provider_id' => $doctor->id,

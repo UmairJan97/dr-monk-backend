@@ -69,9 +69,9 @@ class FrontDeskController extends Controller
         $items = Appointment::query()
             ->where('clinic_id', $request->user()->clinic_id)
             ->whereDate('starts_at', today())
-            ->whereNotIn('status', ['cancelled'])
+            ->whereIn('status', ['scheduled', 'waiting', 'checked_in', 'arrived'])
             ->with([
-                'patient:id,first_name,last_name,mrn,date_of_birth,phone,photo_path',
+                'patient:id,first_name,last_name,mrn,date_of_birth,gender,phone,email,photo_path',
                 'provider:id,name',
             ])
             ->orderBy('starts_at')
@@ -99,7 +99,7 @@ class FrontDeskController extends Controller
             ->when($data['provider_id'] ?? null, fn ($q, $id) => $q->where('provider_id', $id))
             ->when($data['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->with([
-                'patient:id,first_name,last_name,mrn,date_of_birth,phone',
+                'patient:id,first_name,last_name,mrn,date_of_birth,gender,phone,email,photo_path',
                 'provider:id,name',
             ])
             ->orderBy('starts_at')
@@ -265,7 +265,10 @@ class FrontDeskController extends Controller
             ]);
         }
 
-        $appointment->update(['status' => 'waiting']);
+        $appointment->update([
+            'status' => 'waiting',
+            'checked_in_at' => $appointment->checked_in_at ?? now(),
+        ]);
 
         $this->audit->log(
             'appointment.check_in',
@@ -574,13 +577,16 @@ class FrontDeskController extends Controller
             'room' => $appointment->room,
             'starts_at' => optional($appointment->starts_at)?->toIso8601String(),
             'ends_at' => optional($appointment->ends_at)?->toIso8601String(),
+            'checked_in_at' => optional($appointment->checked_in_at)?->toIso8601String(),
             'patient' => $patient ? [
                 'id' => $patient->id,
                 'mrn' => $patient->mrn,
                 'first_name' => $patient->first_name,
                 'last_name' => $patient->last_name,
                 'date_of_birth' => optional($patient->date_of_birth)?->format('Y-m-d'),
+                'gender' => $patient->gender,
                 'phone' => $patient->phone,
+                'email' => $patient->email,
                 'photo_path' => $patient->photo_path ?? null,
             ] : null,
             'provider' => $appointment->provider ? [

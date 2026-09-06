@@ -38,6 +38,11 @@ class Clinic extends Model
         return $this->hasMany(User::class);
     }
 
+    public function aclRoles(): HasMany
+    {
+        return $this->hasMany(ClinicAclRole::class);
+    }
+
     public function patients(): HasMany
     {
         return $this->hasMany(Patient::class);

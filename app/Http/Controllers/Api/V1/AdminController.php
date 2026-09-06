@@ -8,15 +8,17 @@ use App\Models\Appointment;
 use App\Models\AuditLog;
 use App\Models\Claim;
 use App\Models\Clinic;
+use App\Models\ClinicAclRole;
 use App\Models\Patient;
 use App\Models\User;
 use App\Models\UserInvitation;
 use App\Models\Vital;
-use Carbon\Carbon;
 use App\Services\AuditService;
+use App\Services\ClinicAclService;
 use App\Support\ApiResponse;
 use App\Support\Permissions;
 use App\Support\Roles;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -25,7 +27,10 @@ use Illuminate\Validation\ValidationException;
 
 class AdminController extends Controller
 {
-    public function __construct(private AuditService $audit) {}
+    public function __construct(
+        private AuditService $audit,
+        private ClinicAclService $acl,
+    ) {}
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -305,6 +310,7 @@ class AdminController extends Controller
                 'can_prescribe' => $user->can_prescribe,
                 'license_state' => $user->license_state,
                 'roles' => $user->getRoleNames()->values()->all(),
+                'clinic_acl_role_id' => $user->clinic_acl_role_id,
             ];
         });
 
@@ -318,26 +324,52 @@ class AdminController extends Controller
         $data = $request->validate([
             'is_active' => ['sometimes', 'boolean'],
             'role' => ['sometimes', 'string', 'in:'.implode(',', Roles::clinicAssignable())],
+            'acl_role_id' => ['sometimes', 'integer'],
             'can_prescribe' => ['sometimes', 'boolean'],
             'license_state' => ['nullable', 'string', 'size:2'],
         ]);
+
+        $aclRole = null;
+        if (! empty($data['acl_role_id'])) {
+            $this->acl->ensureForClinic((int) $request->user()->clinic_id);
+            $aclRole = ClinicAclRole::query()
+                ->where('clinic_id', $request->user()->clinic_id)
+                ->whereKey($data['acl_role_id'])
+                ->first();
+            abort_unless($aclRole, 404);
+        }
 
         if (array_key_exists('is_active', $data)) {
             $user->is_active = $data['is_active'];
         }
         if (array_key_exists('can_prescribe', $data)) {
-            // Admin may only set prescribe for doctor/NP roles
-            $roles = isset($data['role']) ? [$data['role']] : $user->getRoleNames()->all();
+            $roles = $aclRole
+                ? [$aclRole->base_role]
+                : (isset($data['role']) ? [$data['role']] : $user->getRoleNames()->all());
             $mayRx = count(array_intersect($roles, Roles::canWritePrescriptions())) > 0;
             $user->can_prescribe = $mayRx ? (bool) $data['can_prescribe'] : false;
         }
         if (array_key_exists('license_state', $data)) {
             $user->license_state = $data['license_state'] ? strtoupper($data['license_state']) : null;
         }
-        $user->save();
 
-        if (! empty($data['role'])) {
-            $user->syncRoles([$data['role']]);
+        if ($aclRole) {
+            $user->clinic_acl_role_id = $aclRole->id;
+            $user->save();
+            $user->syncRoles([$aclRole->base_role]);
+        } else {
+            $user->save();
+            if (! empty($data['role'])) {
+                $user->syncRoles([$data['role']]);
+                $this->acl->ensureForClinic((int) $user->clinic_id);
+                $matched = ClinicAclRole::query()
+                    ->where('clinic_id', $user->clinic_id)
+                    ->where('slug', $data['role'])
+                    ->first();
+                if ($matched) {
+                    $user->forceFill(['clinic_acl_role_id' => $matched->id])->save();
+                }
+            }
         }
 
         $this->audit->log('admin.user_update', 'allowed', $request->user(), $request, entityType: User::class, entityId: $user->id);
@@ -347,6 +379,7 @@ class AdminController extends Controller
             'is_active' => $user->is_active,
             'can_prescribe' => $user->can_prescribe,
             'roles' => $user->getRoleNames()->values()->all(),
+            'clinic_acl_role_id' => $user->clinic_acl_role_id,
         ], 'User updated');
     }
 

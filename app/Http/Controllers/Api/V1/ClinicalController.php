@@ -301,6 +301,7 @@ class ClinicalController extends Controller
                     'id' => $a->id,
                     'starts_at' => optional($a->starts_at)?->toIso8601String(),
                     'ends_at' => optional($a->ends_at)?->toIso8601String(),
+                    'checked_in_at' => optional($a->checked_in_at)?->toIso8601String(),
                     'status' => $a->status,
                     'visit_type' => $a->visit_type,
                     'room' => $a->room,

@@ -78,6 +78,7 @@ class VitalNurseController extends Controller
                     'status' => $a->status,
                     'visit_type' => $a->visit_type,
                     'starts_at' => optional($a->starts_at)?->toIso8601String(),
+                    'checked_in_at' => optional($a->checked_in_at)?->toIso8601String(),
                     'patient' => $a->patient ? PhiGate::demographicsPayload($a->patient) : null,
                     'provider' => $a->provider ? ['id' => $a->provider->id, 'name' => $a->provider->name] : null,
                     'has_vitals' => $hasVitals,

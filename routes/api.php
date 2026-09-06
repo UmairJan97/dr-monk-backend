@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AclController;
 use App\Http\Controllers\Api\V1\AdminController;
 use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -66,7 +67,7 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
         Route::post('chat/messages/read-all', [ChatController::class, 'markAllRead']);
         Route::post('chat/messages/{message}/read', [ChatController::class, 'markRead']);
 
-        Route::middleware('role:'.Roles::DOCTOR.','.Roles::NP)->group(function () {
+        Route::middleware('role:'.Roles::DOCTOR.','.Roles::NP.','.Roles::FRONT_DESK.','.Roles::VITAL_NURSE)->group(function () {
             Route::get('tasks', [TaskController::class, 'index']);
             Route::post('tasks', [TaskController::class, 'store']);
             Route::patch('tasks/{task}', [TaskController::class, 'update']);
@@ -97,13 +98,18 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
             ->middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP);
 
         Route::patch('patients/{patient}', [PatientController::class, 'update'])
-            ->middleware(['role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN, 'patient.access']);
+            ->middleware(['role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR, 'patient.access']);
+
+        Route::middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::COUNSELOR.','.Roles::THERAPIST.','.Roles::VITAL_NURSE.','.Roles::BILLING)
+            ->prefix('front-desk')
+            ->group(function () {
+                Route::get('appointments', [FrontDeskController::class, 'appointments']);
+            });
 
         // Doctor/NP can list/create appointments + load providers (same booking as desk)
         Route::middleware('role:'.Roles::FRONT_DESK.','.Roles::CLINIC_ADMIN.','.Roles::DOCTOR.','.Roles::NP.','.Roles::COUNSELOR.','.Roles::THERAPIST)
             ->prefix('front-desk')
             ->group(function () {
-                Route::get('appointments', [FrontDeskController::class, 'appointments']);
                 Route::post('appointments', [FrontDeskController::class, 'schedule']);
                 Route::get('providers', [FrontDeskController::class, 'providers']);
             });
@@ -205,6 +211,13 @@ Route::prefix('v1')->middleware([ForceJsonResponse::class])->group(function () {
 
         Route::post('ai/monk', [AiController::class, 'command'])
             ->middleware('role:'.Roles::DOCTOR.','.Roles::NP.','.Roles::VITAL_NURSE.','.Roles::FRONT_DESK.','.Roles::COUNSELOR.','.Roles::THERAPIST.','.Roles::CLINIC_ADMIN);
+
+        Route::middleware('role:'.Roles::CLINIC_ADMIN.','.Roles::DOCTOR)->prefix('acl')->group(function () {
+            Route::get('roles', [AclController::class, 'index']);
+            Route::post('roles', [AclController::class, 'store']);
+            Route::patch('roles/{aclRole}', [AclController::class, 'update']);
+            Route::delete('roles/{aclRole}', [AclController::class, 'destroy']);
+        });
 
         Route::middleware('role:'.Roles::CLINIC_ADMIN)->prefix('admin')->group(function () {
             Route::get('dashboard', [AdminController::class, 'dashboard']);

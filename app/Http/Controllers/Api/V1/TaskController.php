@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Patient;
 use App\Models\ProviderTask;
 use App\Support\ApiResponse;
 use Carbon\Carbon;
@@ -15,9 +16,17 @@ class TaskController extends Controller
     {
         $user = $request->user();
 
-        $items = ProviderTask::query()
+        $query = ProviderTask::query()
             ->where('clinic_id', $user->clinic_id)
-            ->where('user_id', $user->id)
+            ->where('user_id', $user->id);
+
+        if ($request->filled('patient_id')) {
+            $patientId = (int) $request->integer('patient_id');
+            $this->assertPatientAccess($request, $patientId);
+            $query->where('patient_id', $patientId);
+        }
+
+        $items = $query
             ->orderBy('done')
             ->orderByDesc('due_at')
             ->orderByDesc('created_at')
@@ -40,6 +49,9 @@ class TaskController extends Controller
             'done' => ['nullable', 'boolean'],
         ]);
 
+        $patientId = $data['patient_id'] ?? null;
+        $this->assertPatientAccess($request, $patientId);
+
         $dueAt = now();
 
         $task = ProviderTask::query()->create([
@@ -47,7 +59,7 @@ class TaskController extends Controller
             'user_id' => $user->id,
             'title' => trim($data['title']),
             'patient_name' => isset($data['patient_name']) ? trim((string) $data['patient_name']) : null,
-            'patient_id' => $data['patient_id'] ?? null,
+            'patient_id' => $patientId,
             'priority' => $data['priority'] ?? 'medium',
             'due_at' => $dueAt,
             'due_label' => $this->formatDueLabel($dueAt),
@@ -68,6 +80,10 @@ class TaskController extends Controller
             'priority' => ['sometimes', 'in:high,medium,low'],
             'done' => ['sometimes', 'boolean'],
         ]);
+
+        if (array_key_exists('patient_id', $data)) {
+            $this->assertPatientAccess($request, $data['patient_id']);
+        }
 
         if (array_key_exists('title', $data)) {
             $task->title = trim($data['title']);
@@ -104,6 +120,16 @@ class TaskController extends Controller
         $task->delete();
 
         return ApiResponse::success(['id' => $task->id], 'Task deleted');
+    }
+
+    private function assertPatientAccess(Request $request, ?int $patientId): void
+    {
+        if (! $patientId) {
+            return;
+        }
+
+        $patient = Patient::query()->findOrFail($patientId);
+        abort_unless($request->user()->canAccessPatient($patient), 403, 'PHI access denied for this patient.');
     }
 
     private function authorizeOwner(Request $request, ProviderTask $task): void

@@ -47,6 +47,12 @@ final class PhiGate
             'address' => $patient->address,
             'photo_path' => $patient->photo_path,
             'primary_provider_id' => $patient->primary_provider_id,
+            'primary_provider' => $patient->relationLoaded('primaryProvider') && $patient->primaryProvider
+                ? [
+                    'id' => $patient->primaryProvider->id,
+                    'name' => $patient->primaryProvider->name,
+                ]
+                : null,
             'emergency_contact' => $patient->emergency_contact,
             'insurance' => self::safeInsurancePayload($primary, 'primary'),
             'secondary_insurance' => self::safeInsurancePayload($secondary, 'secondary'),

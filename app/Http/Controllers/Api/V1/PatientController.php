@@ -36,11 +36,40 @@ class PatientController extends Controller
             }
 
             $like = '%'.strtolower($search).'%';
-            $q->where(function ($inner) use ($like) {
+            $driver = $q->getConnection()->getDriverName();
+            $fullName = $driver === 'sqlite'
+                ? "LOWER(TRIM(first_name || ' ' || last_name))"
+                : "LOWER(TRIM(CONCAT(first_name, ' ', last_name)))";
+            $dobExpr = $driver === 'sqlite'
+                ? 'CAST(date_of_birth AS TEXT)'
+                : 'CAST(date_of_birth AS CHAR)';
+
+            $q->where(function ($inner) use ($like, $search, $fullName, $dobExpr) {
                 $inner->whereRaw('LOWER(first_name) LIKE ?', [$like])
                     ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
-                    ->orWhere('phone', 'like', $like)
-                    ->orWhere('mrn', 'like', $like);
+                    ->orWhereRaw("{$fullName} LIKE ?", [$like])
+                    ->orWhereRaw('LOWER(COALESCE(mrn, \'\')) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(COALESCE(phone, \'\')) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(COALESCE(email, \'\')) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(COALESCE(gender, \'\')) LIKE ?', [$like])
+                    ->orWhereRaw("LOWER({$dobExpr}) LIKE ?", [$like]);
+
+                $digits = preg_replace('/\D+/', '', $search) ?? '';
+                if (strlen($digits) >= 3) {
+                    $inner->orWhereRaw(
+                        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone,''), '-', ''), '(', ''), ')', ''), ' ', ''), '.', '') LIKE ?",
+                        ['%'.$digits.'%']
+                    );
+                }
+
+                if (preg_match('/^(\d{1,3})(?:\s*(?:y(?:ears?|os)?|a))?$/i', trim($search), $m)) {
+                    $age = (int) $m[1];
+                    if ($age <= 130) {
+                        $from = now()->subYears($age + 1)->addDay()->toDateString();
+                        $to = now()->subYears($age)->toDateString();
+                        $inner->orWhereBetween('date_of_birth', [$from, $to]);
+                    }
+                }
             });
         }
 
@@ -181,6 +210,16 @@ class PatientController extends Controller
     {
         // Front Desk + Clinic Admin demographics editors share the same shape.
         if ($request->user()->hasAnyRole([Roles::FRONT_DESK, Roles::CLINIC_ADMIN])) {
+            try {
+                $patient->load(['primaryProvider:id,name', 'insurances']);
+            } catch (\Throwable) {
+                try {
+                    $patient->load(['insurances']);
+                } catch (\Throwable) {
+                    // Demographics still return without relations.
+                }
+            }
+
             return ApiResponse::success(PhiGate::demographicsPayload($patient));
         }
 
@@ -230,8 +269,8 @@ class PatientController extends Controller
     public function update(Request $request, Patient $patient): JsonResponse
     {
         $user = $request->user();
-        if (! $user->hasAnyRole([Roles::FRONT_DESK, Roles::CLINIC_ADMIN])) {
-            return ApiResponse::error('Only Front Desk / Clinic Admin may edit demographics.', 403, 'FORBIDDEN');
+        if (! $user->hasAnyRole([Roles::FRONT_DESK, Roles::CLINIC_ADMIN, Roles::DOCTOR])) {
+            return ApiResponse::error('Only Front Desk / Clinic Admin / Doctor may edit demographics.', 403, 'FORBIDDEN');
         }
 
         $requirePhone = $user->hasRole(Roles::FRONT_DESK);

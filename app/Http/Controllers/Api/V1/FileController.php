@@ -38,10 +38,16 @@ class FileController extends Controller
             abort_unless($request->user()->canAccessPatient($patient), 403, 'PHI access denied for this patient.');
         }
 
-        // Front Desk may only upload demographics-related docs.
+        // Front Desk: demographics plus patient docs / lab reports from the desk dashboard.
         if ($request->user()->hasRole(Roles::FRONT_DESK)
-            && ! in_array($data['doc_type'], ['insurance_card', 'selfie', 'photo_id'], true)) {
-            abort(403, 'Front Desk cannot upload clinical documents.');
+            && ! in_array($data['doc_type'], [
+                'insurance_card',
+                'selfie',
+                'photo_id',
+                'lab_result',
+                'clinical_document',
+            ], true)) {
+            abort(403, 'Front Desk cannot upload this document type.');
         }
 
         $document = $this->files->storeEncrypted(

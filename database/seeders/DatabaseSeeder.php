@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Clinic;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\ClinicAclService;
 use App\Support\Permissions;
 use App\Support\Roles;
 use Illuminate\Database\Seeder;
@@ -94,6 +95,8 @@ class DatabaseSeeder extends Seeder
             );
             $user->syncRoles([$row['role']]);
         }
+
+        app(ClinicAclService::class)->ensureForClinic((int) $clinic->id);
 
         $this->call(FrontDeskDemoSeeder::class);
         $this->call(VitalNurseDemoSeeder::class);
