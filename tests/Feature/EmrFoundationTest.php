@@ -227,7 +227,7 @@ class EmrFoundationTest extends TestCase
         $this->assertArrayNotHasKey('allergies', $response->json('data'));
     }
 
-    public function test_vitals_bmi_and_ready_for_provider_flow(): void
+    public function test_vitals_bmi_and_ready_for_np_flow(): void
     {
         [$clinic, $desk, $doctor, $patient] = $this->seedClinicWorld();
         $nurse = User::factory()->create([
@@ -236,6 +236,15 @@ class EmrFoundationTest extends TestCase
             'pin_hash' => Hash::make('1234'),
         ]);
         $nurse->assignRole(Roles::VITAL_NURSE);
+
+        $np = User::factory()->create([
+            'clinic_id' => $clinic->id,
+            'is_active' => true,
+            'can_prescribe' => true,
+            'license_state' => 'NY',
+            'pin_hash' => Hash::make('1234'),
+        ]);
+        $np->assignRole(Roles::NP);
 
         $appointment = Appointment::create([
             'clinic_id' => $clinic->id,
@@ -268,8 +277,13 @@ class EmrFoundationTest extends TestCase
 
         $this->assertDatabaseHas('clinic_notifications', [
             'clinic_id' => $clinic->id,
+            'user_id' => $np->id,
+            'type' => 'vitals.ready_for_np',
+        ]);
+        $this->assertDatabaseMissing('clinic_notifications', [
+            'clinic_id' => $clinic->id,
             'user_id' => $doctor->id,
-            'type' => 'vitals.ready',
+            'type' => 'vitals.ready_for_np',
         ]);
     }
 

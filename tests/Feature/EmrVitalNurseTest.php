@@ -35,6 +35,14 @@ class EmrVitalNurseTest extends TestCase
     public function test_vitals_queue_intake_alerts_and_provider_notify(): void
     {
         [$clinic, $nurse, $doctor, $patient, $appointment] = $this->world();
+        $np = User::factory()->create([
+            'clinic_id' => $clinic->id,
+            'is_active' => true,
+            'can_prescribe' => true,
+            'license_state' => 'NY',
+            'pin_hash' => Hash::make('1234'),
+        ]);
+        $np->assignRole(Roles::NP);
         Sanctum::actingAs($nurse);
 
         $this->getJson('/api/v1/vitals/dashboard')
@@ -76,8 +84,12 @@ class EmrVitalNurseTest extends TestCase
             ->assertJsonPath('data.appointment.status', 'ready_for_np');
 
         $this->assertDatabaseHas('clinic_notifications', [
+            'user_id' => $np->id,
+            'type' => 'vitals.ready_for_np',
+        ]);
+        $this->assertDatabaseMissing('clinic_notifications', [
             'user_id' => $doctor->id,
-            'type' => 'vitals.ready',
+            'type' => 'vitals.ready_for_np',
         ]);
     }
 

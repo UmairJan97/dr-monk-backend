@@ -156,9 +156,14 @@ class EmrDoctorTest extends TestCase
         $this->getJson('/api/v1/clinical/patients/'.$orphan->id.'/chart')->assertForbidden();
     }
 
-    public function test_doctor_and_np_share_ready_queue_chart_access(): void
+    public function test_np_can_open_ready_for_np_chart_before_provider_handoff(): void
     {
         [$clinic, $doctor, $patient] = $this->world();
+        $appointment = Appointment::query()
+            ->where('patient_id', $patient->id)
+            ->firstOrFail();
+        $appointment->update(['status' => 'ready_for_np']);
+
         $np = User::factory()->create([
             'clinic_id' => $clinic->id,
             'is_active' => true,
@@ -169,7 +174,14 @@ class EmrDoctorTest extends TestCase
         $np->assignRole(Roles::NP);
         Sanctum::actingAs($np);
 
-        // Ready-for-provider visit assigned to doctor — NP can still open chart (shared queue).
+        // Post-vitals NP queue — NP can open chart even when visit is assigned to doctor.
+        $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')->assertOk();
+
+        // After handoff to provider, NP no longer shares doctor ready queue access.
+        $appointment->update(['status' => 'ready_for_provider']);
+        $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')->assertForbidden();
+
+        Sanctum::actingAs($doctor);
         $this->getJson('/api/v1/clinical/patients/'.$patient->id.'/chart')->assertOk();
     }
 

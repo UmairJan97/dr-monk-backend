@@ -67,6 +67,20 @@ class EmrNpTest extends TestCase
     public function test_np_ready_queue_and_complete_visit(): void
     {
         [$clinic, $np, $patient] = $this->world(canPrescribe: true, license: 'NY');
+        $doctor = User::factory()->create([
+            'clinic_id' => $clinic->id,
+            'is_active' => true,
+            'can_prescribe' => true,
+            'pin_hash' => Hash::make('1234'),
+        ]);
+        $doctor->assignRole(Roles::DOCTOR);
+
+        $appt = Appointment::query()->where('patient_id', $patient->id)->firstOrFail();
+        $appt->update([
+            'provider_id' => $doctor->id,
+            'status' => 'ready_for_np',
+        ]);
+
         $np->assignedPatients()->attach($patient->id, ['clinic_id' => $clinic->id]);
         Sanctum::actingAs($np);
 
@@ -74,13 +88,18 @@ class EmrNpTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.stats.ready_queue', 1);
 
-        $apptId = Appointment::query()->where('provider_id', $np->id)->value('id');
-        $this->postJson('/api/v1/clinical/appointments/'.$apptId.'/start')
+        $this->postJson('/api/v1/clinical/appointments/'.$appt->id.'/start')
             ->assertOk()
-            ->assertJsonPath('data.status', 'in_progress');
-        $this->postJson('/api/v1/clinical/appointments/'.$apptId.'/complete')
+            ->assertJsonPath('data.status', 'ready_for_np');
+        $this->postJson('/api/v1/clinical/appointments/'.$appt->id.'/complete')
             ->assertOk()
-            ->assertJsonPath('data.status', 'completed');
+            ->assertJsonPath('data.appointment.status', 'ready_for_provider');
+
+        $this->assertDatabaseHas('clinic_notifications', [
+            'clinic_id' => $clinic->id,
+            'user_id' => $doctor->id,
+            'type' => 'np.assessment.ready',
+        ]);
     }
 
     public function test_np_hello_monk_prescribe_intent(): void
@@ -164,7 +183,7 @@ class EmrNpTest extends TestCase
             'provider_id' => $np->id,
             'starts_at' => now()->setTime(10, 0),
             'ends_at' => now()->setTime(10, 30),
-            'status' => 'ready_for_provider',
+            'status' => 'ready_for_np',
         ]);
 
         return [$clinic, $np, $patient];
