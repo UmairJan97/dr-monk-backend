@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
  * Puts ~5 visible today-queue records on each operational role screen.
  *
  * Flow (as requested): Front Desk → Vital Nurse → NP → Doctor
- * (NP gets ready_for_provider before Doctor.)
+ * (NP gets ready_for_np after vitals; Doctor gets ready_for_provider after NP.)
  */
 class RoleFiveRecordsSeeder extends Seeder
 {
@@ -133,7 +133,7 @@ class RoleFiveRecordsSeeder extends Seeder
             }
         }
 
-        // ——— NP: 5 ready_for_provider (after vitals) ———
+        // ——— NP: 5 ready_for_np (after vitals, before doctor) ———
         $npRows = [
             ['Wendy', 'Khan', '1990-08-14', 'Female', '5557003001', 'wendy.khan.role5@example.com', 'Aetna', 'AET-R521'],
             ['Xander', 'Lee', '1982-02-27', 'Male', '5557003002', 'xander.lee.role5@example.com', 'Cigna', 'CIG-R522'],
@@ -153,10 +153,10 @@ class RoleFiveRecordsSeeder extends Seeder
             $appt = Appointment::query()->create([
                 'clinic_id' => $clinic->id,
                 'patient_id' => $patient->id,
-                'provider_id' => $np->id,
+                'provider_id' => $doctor->id,
                 'starts_at' => $start,
                 'ends_at' => $start->copy()->addMinutes(25),
-                'status' => $i === 2 ? 'in_progress' : 'ready_for_provider',
+                'status' => 'ready_for_np',
                 'visit_type' => 'NP visit',
                 'room' => 'N'.($i + 1),
                 'notes' => '[role5-np] vitals done → NP queue',

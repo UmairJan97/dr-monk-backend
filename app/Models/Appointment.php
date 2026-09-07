@@ -12,6 +12,7 @@ class Appointment extends Model
         'waiting',
         'ready_for_vitals',
         'vitals_completed',
+        'ready_for_np',
         'ready_for_provider',
         'in_progress',
         'completed',

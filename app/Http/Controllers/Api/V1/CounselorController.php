@@ -65,8 +65,8 @@ class CounselorController extends Controller
             ->where('clinic_id', $request->user()->clinic_id)
             ->where('provider_id', $request->user()->id)
             ->whereBetween('starts_at', [$from, $to])
-            ->with(['patient:id,first_name,last_name,mrn'])
-            ->orderBy('starts_at')
+            ->with(['patient:id,first_name,last_name,mrn,photo_path'])
+            ->orderByDesc('created_at')
             ->get();
 
         return ApiResponse::success(['items' => $items]);

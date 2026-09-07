@@ -74,7 +74,7 @@ class FrontDeskController extends Controller
                 'patient:id,first_name,last_name,mrn,date_of_birth,gender,phone,email,photo_path',
                 'provider:id,name',
             ])
-            ->orderBy('starts_at')
+            ->orderByDesc('created_at')
             ->get()
             ->map(fn (Appointment $a) => $this->appointmentPayload($a));
 
@@ -102,7 +102,7 @@ class FrontDeskController extends Controller
                 'patient:id,first_name,last_name,mrn,date_of_birth,gender,phone,email,photo_path',
                 'provider:id,name',
             ])
-            ->orderBy('starts_at')
+            ->orderByDesc('created_at')
             ->get()
             ->map(fn (Appointment $a) => $this->appointmentPayload($a));
 

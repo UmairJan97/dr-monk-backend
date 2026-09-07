@@ -264,7 +264,7 @@ class EmrFoundationTest extends TestCase
 
         $this->postJson('/api/v1/vitals/appointments/'.$appointment->id.'/complete')
             ->assertOk()
-            ->assertJsonPath('data.appointment.status', 'ready_for_provider');
+            ->assertJsonPath('data.appointment.status', 'ready_for_np');
 
         $this->assertDatabaseHas('clinic_notifications', [
             'clinic_id' => $clinic->id,

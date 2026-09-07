@@ -19,6 +19,7 @@ class NpDemoSeeder extends Seeder
         $clinic = Clinic::query()->where('slug', 'demo-clinic')->first();
         $np = User::query()->where('email', 'np@demo.local')->first();
         $nurse = User::query()->where('email', 'vitals@demo.local')->first();
+        $doctor = User::query()->where('email', 'doctor@demo.local')->first();
 
         if (! $clinic || ! $np) {
             $this->command?->warn('Demo clinic/NP missing.');
@@ -54,9 +55,9 @@ class NpDemoSeeder extends Seeder
         }
 
         $statuses = [
-            'ready_for_provider', 'ready_for_provider', 'in_progress', 'ready_for_provider',
-            'ready_for_provider', 'vitals_completed', 'ready_for_provider', 'ready_for_provider',
-            'ready_for_provider', 'ready_for_provider',
+            'ready_for_np', 'ready_for_np', 'ready_for_np', 'ready_for_np',
+            'ready_for_np', 'ready_for_np', 'ready_for_np', 'ready_for_np',
+            'ready_for_np', 'ready_for_np',
         ];
 
         foreach ($patients->take(10)->values() as $i => $patient) {
@@ -76,10 +77,10 @@ class NpDemoSeeder extends Seeder
             $appt = Appointment::query()->create([
                 'clinic_id' => $clinic->id,
                 'patient_id' => $patient->id,
-                'provider_id' => $np->id,
+                'provider_id' => $doctor?->id ?? $np->id,
                 'starts_at' => $start,
                 'ends_at' => $start->copy()->addMinutes(18),
-                'status' => $statuses[$i] ?? 'ready_for_provider',
+                'status' => $statuses[$i] ?? 'ready_for_np',
                 'visit_type' => $i % 2 === 0 ? 'NP visit' : 'Follow-up',
                 'notes' => '[demo-np]',
             ]);

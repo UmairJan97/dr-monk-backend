@@ -112,13 +112,20 @@ class User extends Authenticatable
                 return true;
             }
 
-            // Own scheduled visits, or shared NP/Doctor post-vitals ready queue.
+            $isNpOnly = $this->hasRole(Roles::NP) && ! $this->hasRole(Roles::DOCTOR);
+
+            // NP: clinic-wide post-vitals initial assessment queue.
+            // Doctor: own visits or post-NP ready / in-progress queue.
             return Appointment::query()
                 ->where('clinic_id', $this->clinic_id)
                 ->where('patient_id', $patient->id)
-                ->where(function ($q) {
-                    $q->where('provider_id', $this->id)
-                        ->orWhereIn('status', ['ready_for_provider', 'in_progress']);
+                ->where(function ($q) use ($isNpOnly) {
+                    $q->where('provider_id', $this->id);
+                    if ($isNpOnly) {
+                        $q->orWhereIn('status', ['ready_for_np']);
+                    } else {
+                        $q->orWhereIn('status', ['ready_for_provider', 'in_progress']);
+                    }
                 })
                 ->exists();
         }

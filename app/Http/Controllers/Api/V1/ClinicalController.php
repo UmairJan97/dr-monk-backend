@@ -17,6 +17,7 @@ use App\Models\Vital;
 use App\Services\Ai\CodingSuggestService;
 use App\Services\Ai\PatientSummaryService;
 use App\Services\Integrations\SurescriptsService;
+use App\Services\NotificationService;
 use App\Support\ApiResponse;
 use App\Support\PhiGate;
 use App\Support\Roles;
@@ -31,20 +32,25 @@ class ClinicalController extends Controller
         private PatientSummaryService $summaries,
         private CodingSuggestService $coding,
         private SurescriptsService $surescripts,
+        private NotificationService $notifications,
     ) {}
 
     public function dashboard(Request $request): JsonResponse
     {
         $user = $request->user();
         $clinicId = $user->clinic_id;
+        $isNpOnly = $user->hasRole(Roles::NP) && ! $user->hasRole(Roles::DOCTOR);
+        $queueStatuses = $isNpOnly
+            ? ['ready_for_np']
+            : ['ready_for_provider', 'in_progress'];
 
-        // NP + Doctor share one clinic-wide post-vitals ready queue.
+        // NP: clinic-wide post-vitals initial assessment. Doctor: post-NP ready queue.
         $queue = Appointment::query()
             ->where('clinic_id', $clinicId)
-            ->whereIn('status', ['ready_for_provider', 'in_progress'])
+            ->whereIn('status', $queueStatuses)
             ->whereDate('starts_at', today())
-            ->with(['patient:id,first_name,last_name,mrn,date_of_birth,flag_color,is_sick', 'provider:id,name'])
-            ->orderBy('starts_at')
+            ->with(['patient:id,first_name,last_name,mrn,date_of_birth,flag_color,is_sick,photo_path', 'provider:id,name'])
+            ->orderByDesc('created_at')
             ->get();
 
         $completedToday = Appointment::query()
@@ -87,7 +93,7 @@ class ClinicalController extends Controller
                         ->where('clinic_id', $clinicId)
                         ->where('patient_id', $v->patient_id)
                         ->whereDate('starts_at', today())
-                        ->whereIn('status', ['ready_for_provider', 'in_progress', 'vitals_completed'])
+                        ->whereIn('status', ['ready_for_np', 'ready_for_provider', 'in_progress', 'vitals_completed'])
                         ->orderByDesc('starts_at')
                         ->value('id');
                 }
@@ -182,14 +188,22 @@ class ClinicalController extends Controller
 
         $from = isset($data['from']) ? Carbon::parse($data['from'])->startOfDay() : today()->startOfDay();
         $to = isset($data['to']) ? Carbon::parse($data['to'])->endOfDay() : today()->endOfDay();
+        $user = $request->user();
+        $isNpOnly = $user->hasRole(Roles::NP) && ! $user->hasRole(Roles::DOCTOR);
 
-        $items = Appointment::query()
-            ->where('clinic_id', $request->user()->clinic_id)
-            ->where('provider_id', $request->user()->id)
+        $query = Appointment::query()
+            ->where('clinic_id', $user->clinic_id)
             ->whereBetween('starts_at', [$from, $to])
-            ->with(['patient:id,first_name,last_name,mrn,flag_color,is_sick', 'provider:id,name'])
-            ->orderBy('starts_at')
-            ->get();
+            ->with(['patient:id,first_name,last_name,mrn,flag_color,is_sick,photo_path', 'provider:id,name']);
+
+        if ($isNpOnly) {
+            // Clinic-wide NP initial assessment queue (not limited to provider_id).
+            $query->whereIn('status', ['ready_for_np']);
+        } else {
+            $query->where('provider_id', $user->id);
+        }
+
+        $items = $query->orderByDesc('created_at')->get();
 
         return ApiResponse::success(['from' => $from->toIso8601String(), 'to' => $to->toIso8601String(), 'items' => $items]);
     }
@@ -658,7 +672,20 @@ class ClinicalController extends Controller
             return ApiResponse::success($appointment->fresh(), 'Visit already completed');
         }
 
-        if (! in_array($appointment->status, ['ready_for_provider', 'vitals_completed', 'in_progress'], true)) {
+        $isNpOnly = $user->hasRole(Roles::NP) && ! $user->hasRole(Roles::DOCTOR);
+
+        if ($isNpOnly) {
+            if (! in_array($appointment->status, ['ready_for_np'], true)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'status' => ['NP assessment cannot be started from status: '.$appointment->status],
+                ]);
+            }
+
+            // Stay on ready_for_np so Doctor does not pick the patient up mid-assessment.
+            return ApiResponse::success($appointment->fresh(), 'NP assessment started');
+        }
+
+        if (! in_array($appointment->status, ['ready_for_provider', 'in_progress'], true)) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'status' => ['Visit cannot be started from status: '.$appointment->status],
             ]);
@@ -679,7 +706,44 @@ class ClinicalController extends Controller
             return ApiResponse::success($appointment->fresh(), 'Visit already completed');
         }
 
-        if (! in_array($appointment->status, ['in_progress', 'ready_for_provider', 'vitals_completed'], true)) {
+        $user = $request->user();
+        $isNpOnly = $user->hasRole(Roles::NP) && ! $user->hasRole(Roles::DOCTOR);
+
+        if ($isNpOnly) {
+            if (! in_array($appointment->status, ['ready_for_np'], true)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'status' => ['NP assessment cannot be completed from status: '.$appointment->status],
+                ]);
+            }
+
+            $appointment->update(['status' => 'ready_for_provider']);
+
+            $provider = $appointment->relationLoaded('provider')
+                ? $appointment->provider
+                : $appointment->provider()->first();
+            $notificationsSent = 0;
+            if ($provider && $provider->is_active) {
+                $this->notifications->notifyUser(
+                    $provider,
+                    'np.assessment.ready',
+                    'Patient ready for provider',
+                    'NP initial assessment complete — patient is ready in your queue.',
+                    [
+                        'appointment_id' => $appointment->id,
+                        'patient_id' => $appointment->patient_id,
+                        'status' => 'ready_for_provider',
+                    ],
+                );
+                $notificationsSent = 1;
+            }
+
+            return ApiResponse::success([
+                'appointment' => $appointment->fresh(),
+                'notifications_sent' => $notificationsSent,
+            ], 'Provider notified: patient ready after NP assessment');
+        }
+
+        if (! in_array($appointment->status, ['in_progress', 'ready_for_provider'], true)) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'status' => ['Visit cannot be completed from status: '.$appointment->status],
             ]);
@@ -690,11 +754,17 @@ class ClinicalController extends Controller
         return ApiResponse::success($appointment->fresh(), 'Visit completed');
     }
 
-    /** Doctor and NP in the same clinic share post-vitals ready records. */
+    /** Doctor and NP in the same clinic share clinical appointment access. */
     private function assertSharedClinicalAccess(Request $request, Appointment $appointment): void
     {
         $user = $request->user();
         abort_unless($appointment->clinic_id === $user->clinic_id, 403);
         abort_unless($user->hasAnyRole(Roles::clinicalProviders()), 403);
+
+        $isNpOnly = $user->hasRole(Roles::NP) && ! $user->hasRole(Roles::DOCTOR);
+        if ($isNpOnly) {
+            abort_unless(in_array($appointment->status, ['ready_for_np', 'ready_for_provider', 'in_progress', 'completed'], true)
+                || (int) $appointment->provider_id === (int) $user->id, 403);
+        }
     }
 }

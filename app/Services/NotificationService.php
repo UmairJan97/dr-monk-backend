@@ -64,7 +64,7 @@ class NotificationService
         $providers = User::query()
             ->where('clinic_id', $clinicId)
             ->where('is_active', true)
-            ->role(Roles::clinicalProviders())
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', Roles::clinicalProviders()))
             ->get();
 
         if ($preferUserId) {
@@ -77,6 +77,32 @@ class NotificationService
         $created = [];
         foreach ($providers as $provider) {
             $created[] = $this->notifyUser($provider, $type, $title, $body, $data);
+        }
+
+        return $created;
+    }
+
+    /**
+     * Notify Nurse Practitioners — post-vitals initial assessment handoff.
+     *
+     * @return list<ClinicNotification>
+     */
+    public function notifyNursePractitioners(
+        int $clinicId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = [],
+    ): array {
+        $nps = User::query()
+            ->where('clinic_id', $clinicId)
+            ->where('is_active', true)
+            ->whereHas('roles', fn ($q) => $q->where('name', Roles::NP))
+            ->get();
+
+        $created = [];
+        foreach ($nps as $np) {
+            $created[] = $this->notifyUser($np, $type, $title, $body, $data);
         }
 
         return $created;
@@ -97,7 +123,7 @@ class NotificationService
         $nurses = User::query()
             ->where('clinic_id', $clinicId)
             ->where('is_active', true)
-            ->role(Roles::VITAL_NURSE)
+            ->whereHas('roles', fn ($q) => $q->where('name', Roles::VITAL_NURSE))
             ->get();
 
         $created = [];

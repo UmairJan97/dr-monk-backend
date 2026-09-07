@@ -67,8 +67,8 @@ class VitalNurseController extends Controller
             ->where('clinic_id', $request->user()->clinic_id)
             ->whereIn('status', ['waiting', 'ready_for_vitals', 'vitals_completed'])
             ->whereDate('starts_at', today())
-            ->with(['patient:id,first_name,last_name,date_of_birth,mrn,gender,phone', 'provider:id,name'])
-            ->orderBy('starts_at')
+            ->with(['patient:id,first_name,last_name,date_of_birth,mrn,gender,phone,photo_path', 'provider:id,name'])
+            ->orderByDesc('created_at')
             ->get()
             ->map(function (Appointment $a) {
                 $hasVitals = Vital::query()->where('appointment_id', $a->id)->exists();
@@ -335,7 +335,7 @@ class VitalNurseController extends Controller
 
         if (! Vital::query()->where('appointment_id', $appointment->id)->exists()) {
             throw ValidationException::withMessages([
-                'vitals' => ['Save vitals before notifying the provider.'],
+                'vitals' => ['Save vitals before notifying the nurse practitioner.'],
             ]);
         }
 
@@ -345,25 +345,24 @@ class VitalNurseController extends Controller
             ]);
         }
 
-        $appointment->update(['status' => 'ready_for_provider']);
+        $appointment->update(['status' => 'ready_for_np']);
 
-        $created = $this->notifications->notifyProviders(
+        $created = $this->notifications->notifyNursePractitioners(
             (int) $appointment->clinic_id,
-            'vitals.ready',
-            'Patient ready for provider',
-            'Vitals complete — patient is ready in queue.',
+            'vitals.ready_for_np',
+            'Patient ready for NP assessment',
+            'Vitals complete — patient is ready for nurse practitioner initial assessment.',
             [
                 'appointment_id' => $appointment->id,
                 'patient_id' => $appointment->patient_id,
-                'status' => 'ready_for_provider',
+                'status' => 'ready_for_np',
             ],
-            null // notify all Doctors + NPs in clinic (shared ready queue)
         );
 
         return ApiResponse::success([
             'appointment' => $appointment->fresh(),
             'notifications_sent' => count($created),
-        ], 'Provider notified: patient ready');
+        ], 'NP notified: patient ready for initial assessment');
     }
 
     private function vitalPayload(Vital $vital): array
